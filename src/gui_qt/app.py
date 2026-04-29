@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QStackedWidget
+from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QStackedWidget, QLabel
 from PySide6.QtCore import Qt
 
 from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_FORMULA, PANEL_SEGMENTS, PANEL_PARAMS
 from gui_qt.panels.file_panel import FilePanel
 from gui_qt.panels.formula_panel import FormulaPanel
 from gui_qt.panels.segment_panel import SegmentPanel
-from gui_qt.theme import BG_WINDOW
+from gui_qt.theme import BG_WINDOW, BG_CARD
+from gui_qt.central.param_bar import ParamToolBar
+from gui_qt.central.chart_widget import ChartArea
+from gui_qt.central.chart_toolbar import ChartToolBar
 
 
 class TafelAnalyzerApp(QMainWindow):
@@ -68,10 +71,20 @@ class TafelAnalyzerApp(QMainWindow):
         self.central_layout.setContentsMargins(0, 0, 0, 0)
         self.central_layout.setSpacing(0)
 
-        # Placeholder: ParamToolBar will go here (Task 3.1)
-        # Placeholder: ChartArea will go here (Task 3.2)
-        # Placeholder: ChartToolBar will go here (Task 3.3)
-        # Placeholder: StatusBar goes here
+        self.param_bar = ParamToolBar()
+        self.chart = ChartArea()
+        self.chart_toolbar = ChartToolBar()
+
+        self.status_bar = QLabel("就绪")
+        self.status_bar.setFixedHeight(24)
+        self.status_bar.setStyleSheet(
+            f"color: #64748b; font-size: 10px; padding-left: 8px; background: {BG_CARD};"
+        )
+
+        self.central_layout.addWidget(self.param_bar)
+        self.central_layout.addWidget(self.chart, stretch=1)
+        self.central_layout.addWidget(self.chart_toolbar)
+        self.central_layout.addWidget(self.status_bar)
 
         layout.addWidget(self.central_widget, stretch=1)
         self.activity_bar.set_active(PANEL_FILES)
