@@ -34,8 +34,14 @@ class TafelAnalyzerApp(QMainWindow):
             "channels": None,
             "segments": [],
             "segment_colors": {},
+            "active_segment_index": 0,
+            "prepared": None,
+            "fit": None,
+            "fit_by_segment": {},
+            "prepared_by_segment": {},
             "comparison_mode": False,
             "comparison_items": [],
+            "saved_parameter_defaults": {},
             "_op_generation": 0,
         }
 
@@ -101,4 +107,18 @@ class TafelAnalyzerApp(QMainWindow):
         self.side_stack.setCurrentIndex(panel_id)
 
     def _init_controllers(self) -> None:
-        pass
+        from gui_qt.controllers.file_ctrl import FileController
+        from gui_qt.controllers.fitting_ctrl import FittingController
+
+        self.files = FileController(self)
+        self.fitting = FittingController(self)
+
+        # Wire file panel
+        self.file_panel.files_loaded.connect(self.files.on_files_loaded)
+        self.file_panel.file_selected.connect(self.files.on_file_selected)
+
+        # Wire param bar
+        self.param_bar.fit_clicked.connect(self.fitting.run_fit)
+
+        # Wire formula panel
+        self.formula_panel.apply_clicked.connect(self.fitting.run_fit)
