@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_FORMULA, PANEL_SEGMENTS, PANEL_PARAMS
 from gui_qt.panels.file_panel import FilePanel
 from gui_qt.panels.formula_panel import FormulaPanel
+from gui_qt.panels.segment_panel import SegmentPanel
 from gui_qt.theme import BG_WINDOW
 
 
@@ -56,6 +57,8 @@ class TafelAnalyzerApp(QMainWindow):
         self.side_stack.addWidget(self.file_panel)  # index 0 -> PANEL_FILES
         self.formula_panel = FormulaPanel()
         self.side_stack.addWidget(self.formula_panel)  # index 1 -> PANEL_FORMULA
+        self.segment_panel = SegmentPanel()
+        self.side_stack.addWidget(self.segment_panel)  # index 2 -> PANEL_SEGMENTS
 
         layout.addWidget(self.side_stack)
 
