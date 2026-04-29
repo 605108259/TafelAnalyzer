@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Callable
-
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
     QListWidgetItem, QLabel, QColorDialog,
@@ -10,7 +8,7 @@ from PySide6.QtCore import Signal, Qt
 
 from gui_qt.theme import (
     BUTTON_STYLE, PANEL_STYLE, BG_HOVER, BG_SELECTED, TEXT_PRIMARY,
-    TEXT_SECONDARY, SUCCESS, TEXT_DISABLED, ACCENT, ACCENT_HOVER, ACCENT_BUTTON_STYLE,
+    TEXT_SECONDARY, SUCCESS, TEXT_DISABLED, ACCENT, ACCENT_BUTTON_STYLE,
 )
 
 
@@ -101,6 +99,7 @@ class SegmentPanel(QWidget):
         self.segment_list = QListWidget()
         self.segment_list.setStyleSheet(
             f"QListWidget {{ border: none; background: transparent; outline: none; }}"
+            f"QListWidget::item:hover {{ background: {BG_HOVER}; }}"
             f"QListWidget::item:selected {{ background: {BG_SELECTED}; }}"
         )
         self.segment_list.itemClicked.connect(self._on_item_clicked)
