@@ -53,7 +53,7 @@ class SegmentItemWidget(QWidget):
 
         # R2 badge
         if r2 is not None:
-            r2_label = QLabel(f"R2={r2:.4f}")
+            r2_label = QLabel(f"R²={r2:.4f}")
             r2_label.setStyleSheet(f"color: {SUCCESS}; font-size: 11px;")
             layout.addWidget(r2_label)
         else:
@@ -87,11 +87,13 @@ class SegmentPanel(QWidget):
         self.btn_select_all = QPushButton(chr(0x5168) + chr(0x9009))
         self.btn_select_all.setStyleSheet(BUTTON_STYLE)
         self.btn_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_select_all.clicked.connect(lambda: self._on_activate(0))
         btn_row.addWidget(self.btn_select_all)
 
         self.btn_clear_all = QPushButton(chr(0x5168) + chr(0x4E0D) + chr(0x9009))
         self.btn_clear_all.setStyleSheet(BUTTON_STYLE)
         self.btn_clear_all.setCursor(Qt.PointingHandCursor)
+        self.btn_clear_all.clicked.connect(lambda: self._on_activate(-1))
         btn_row.addWidget(self.btn_clear_all)
         layout.addLayout(btn_row)
 
@@ -144,7 +146,8 @@ class SegmentPanel(QWidget):
 
     def _on_activate(self, index: int) -> None:
         self._active_index = index
-        self.segment_activated.emit(index)
+        if index >= 0:
+            self.segment_activated.emit(index)
         # Refresh radio indicators
         for i in range(self.segment_list.count()):
             item = self.segment_list.item(i)
