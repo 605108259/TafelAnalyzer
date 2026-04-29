@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel
-from PySide6.QtCore import Qt
 
 from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE
 from gui_qt.theme import BG_WINDOW, BG_CARD, TEXT_PRIMARY, TEXT_SECONDARY
@@ -78,7 +77,7 @@ class TafelAnalyzerApp(QMainWindow):
         try:
             from gui import settings as s
             s.load_app_settings(self)
-        except Exception:
+        except (ImportError, AttributeError, KeyError):
             pass  # CTk widget references don't exist in Qt mode
 
     def _build_ui(self) -> None:
