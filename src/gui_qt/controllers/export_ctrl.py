@@ -26,9 +26,14 @@ class ExportController(BaseAppController):
         if path is None:
             return
 
+        export_name = app.file_segment_panel.get_export_name()
+        if not export_name:
+            export_name = path.stem
+        default_name = f"{export_name}_tafel.txt"
+
         file_path, _ = QFileDialog.getSaveFileName(
             app, "导出结果",
-            str(path.parent / f"{path.stem}_tafel.txt"),
+            str(path.parent / default_name),
             "Text (*.txt);;NumPy NPZ (*.npz);;PNG Image (*.png)",
         )
         if not file_path:

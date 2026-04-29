@@ -214,6 +214,21 @@ class FittingController(BaseAppController):
                 f"第{prepared.segment.index + 1}段拟合失败"
             )
 
+    def enable_manual_mode(self) -> None:
+        """Switch to manual fitting mode."""
+        app = self.app
+        if app._app_state.get("channels") is None:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(app, "提示", "请先选择并加载数据文件")
+            return
+        if app._app_state.get("_fitting_lock"):
+            return
+        app._app_state["manual_mode"] = True
+        app.status_bar.setText("已进入手动框选模式，在右侧 Tafel 图上框选拟合区域")
+        if app._app_state.get("prepared") is not None:
+            from gui.rendering import refresh_selector
+            refresh_selector(app)
+
     def _on_fit_error(self, msg: str) -> None:
         """Handle fitting errors."""
         self.app.status_bar.setText(f"拟合错误: {msg[:60]}")
