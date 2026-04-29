@@ -7,6 +7,7 @@ from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_FORMULA, PANEL_S
 from gui_qt.panels.file_panel import FilePanel
 from gui_qt.panels.formula_panel import FormulaPanel
 from gui_qt.panels.segment_panel import SegmentPanel
+from gui_qt.panels.comparison_panel import ComparisonPanel
 from gui_qt.theme import BG_WINDOW, BG_CARD
 from gui_qt.central.param_bar import ParamToolBar
 from gui_qt.central.chart_widget import ChartArea
@@ -68,6 +69,8 @@ class TafelAnalyzerApp(QMainWindow):
         self.side_stack.addWidget(self.formula_panel)  # index 1 -> PANEL_FORMULA
         self.segment_panel = SegmentPanel()
         self.side_stack.addWidget(self.segment_panel)  # index 2 -> PANEL_SEGMENTS
+        self.comparison_panel = ComparisonPanel()
+        self.side_stack.addWidget(self.comparison_panel)  # index 3
 
         layout.addWidget(self.side_stack)
 
@@ -79,6 +82,9 @@ class TafelAnalyzerApp(QMainWindow):
 
         self.param_bar = ParamToolBar()
         self.chart = ChartArea()
+        # Compatibility aliases for old-style gui.comparison rendering
+        self.fig = self.chart.fig
+        self.canvas = self.chart.canvas
         self.chart_toolbar = ChartToolBar()
 
         self.status_bar = QLabel("就绪")
@@ -106,12 +112,27 @@ class TafelAnalyzerApp(QMainWindow):
             self.side_stack.setFixedWidth(320)
         self.side_stack.setCurrentIndex(panel_id)
 
+    def _switch_mode(self, mode: str) -> None:
+        if mode == "single":
+            self._app_state["comparison_mode"] = False
+            self.side_stack.setCurrentIndex(PANEL_SEGMENTS)
+            if hasattr(self, "summary_table"):
+                self.summary_table.hide()
+        else:
+            self._app_state["comparison_mode"] = True
+            self.side_stack.setCurrentIndex(3)  # comparison panel
+            if hasattr(self, "summary_table"):
+                self.summary_table.show()
+
     def _init_controllers(self) -> None:
         from gui_qt.controllers.file_ctrl import FileController
         from gui_qt.controllers.fitting_ctrl import FittingController
+        from gui_qt.controllers.comparison_ctrl import ComparisonController
+        from gui_qt.central.summary_table import SummaryTable
 
         self.files = FileController(self)
         self.fitting = FittingController(self)
+        self.comparison = ComparisonController(self)
 
         # Wire file panel
         self.file_panel.files_loaded.connect(self.files.on_files_loaded)
@@ -122,3 +143,18 @@ class TafelAnalyzerApp(QMainWindow):
 
         # Wire formula panel
         self.formula_panel.apply_clicked.connect(self.fitting.run_fit)
+
+        # Wire comparison panel
+        self.comparison_panel.delete_selected_clicked.connect(self.comparison.delete_selected)
+        self.comparison_panel.move_up_clicked.connect(self.comparison.move_up)
+        self.comparison_panel.move_down_clicked.connect(self.comparison.move_down)
+        self.comparison_panel.clear_all_clicked.connect(self.comparison.clear_all)
+        self.comparison_panel.add_all_clicked.connect(self.comparison.add_all_processed)
+        self.comparison_panel.item_visibility_changed.connect(self.comparison.toggle_visibility)
+        self.comparison_panel.item_color_changed.connect(self.comparison.update_color)
+        self.comparison_panel.item_renamed.connect(self.comparison.rename)
+
+        # Summary table (hidden in single-file mode)
+        self.summary_table = SummaryTable()
+        self.summary_table.hide()
+        self.central_layout.addWidget(self.summary_table)
