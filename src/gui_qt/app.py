@@ -8,7 +8,7 @@ from gui_qt.panels.file_panel import FilePanel
 from gui_qt.panels.formula_panel import FormulaPanel
 from gui_qt.panels.segment_panel import SegmentPanel
 from gui_qt.panels.comparison_panel import ComparisonPanel
-from gui_qt.theme import BG_WINDOW, BG_CARD
+from gui_qt.theme import BG_WINDOW, BG_CARD, TEXT_PRIMARY
 from gui_qt.central.param_bar import ParamToolBar
 from gui_qt.central.chart_widget import ChartArea
 from gui_qt.central.chart_toolbar import ChartToolBar
@@ -22,9 +22,32 @@ class TafelAnalyzerApp(QMainWindow):
         self.setWindowTitle("Tafel Analyzer")
         self.setMinimumSize(1220, 760)
         self.resize(1480, 900)
-        self.setStyleSheet(f"QMainWindow {{ background: {BG_WINDOW}; }}")
+        self.setStyleSheet(f"""
+            QMainWindow {{ background: {BG_WINDOW}; }}
+            QToolTip {{
+                background: {TEXT_PRIMARY};
+                color: {BG_CARD};
+                border: none;
+                padding: 4px 8px;
+                font-size: 11px;
+                border-radius: 4px;
+            }}
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 8px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: #cbd5e1;
+                border-radius: 4px;
+                min-height: 20px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0;
+            }}
+        """)
 
         self._init_app_state()
+        self._load_settings()
         self._build_ui()
         self._init_controllers()
 
@@ -45,6 +68,10 @@ class TafelAnalyzerApp(QMainWindow):
             "saved_parameter_defaults": {},
             "_op_generation": 0,
         }
+
+    def _load_settings(self) -> None:
+        from gui import settings as s
+        s.load_app_settings(self)
 
     def _build_ui(self) -> None:
         central = QWidget()
