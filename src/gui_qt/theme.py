@@ -109,3 +109,113 @@ LIST_STYLE = f"""
         color: {TEXT_PRIMARY};
     }}
 """
+
+# ━━ Compact toolbar styles ━━
+
+TOOLBAR_STYLE = f"""
+    QWidget#ToolBar {{
+        background: {BG_CARD};
+        border-bottom: 1px solid {BORDER};
+    }}
+"""
+
+TOOLBAR_LABEL = f"""
+    QLabel {{
+        color: {TEXT_SECONDARY};
+        font-size: 11px;
+    }}
+"""
+
+SMALL_BUTTON_STYLE = f"""
+    QPushButton {{
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        color: {TEXT_SECONDARY};
+    }}
+    QPushButton:hover {{
+        background: {BG_HOVER};
+        color: {TEXT_PRIMARY};
+    }}
+"""
+
+DANGER_BUTTON_STYLE = f"""
+    QPushButton {{
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        color: {DANGER};
+    }}
+    QPushButton:hover {{
+        background: #fee2e2;
+    }}
+"""
+
+# ━━ FileSegmentPanel styles ━━
+
+FILE_ITEM_STYLE = f"""
+    QWidget#FileItem {{
+        background: transparent;
+    }}
+    QWidget#FileItem:hover {{
+        background: {BG_HOVER};
+        border-radius: 6px;
+    }}
+"""
+
+SEGMENT_ITEM_STYLE = f"""
+    QWidget#SegmentItem {{
+        background: transparent;
+        border-radius: 6px;
+    }}
+    QWidget#SegmentItem:hover {{
+        background: {BG_HOVER};
+    }}
+"""
+
+CHECKBOX_STYLE = f"""
+    QCheckBox {{
+        spacing: 0px;
+    }}
+    QCheckBox::indicator {{
+        width: 16px;
+        height: 16px;
+        border: 2px solid {BORDER};
+        border-radius: 4px;
+        background: {BG_CARD};
+    }}
+    QCheckBox::indicator:checked {{
+        background: {ACCENT};
+        border-color: {ACCENT};
+    }}
+"""
+
+# ━━ Palette panel styles ━━
+
+COLOR_SWATCH_STYLE = """
+    QPushButton {{
+        border: 2px solid white;
+        border-radius: 8px;
+    }}
+    QPushButton:hover {{
+        border-color: #2563eb;
+    }}
+"""
+
+GRADIENT_PREVIEW_STYLE = f"""
+    QWidget#GradientPreview {{
+        border: 1px solid {BORDER};
+        border-radius: 6px;
+    }}
+"""
+
+STATUS_BAR_STYLE = f"""
+    QLabel {{
+        color: {TEXT_SECONDARY};
+        font-size: 10px;
+        padding: 2px 8px;
+        background: {BG_CARD};
+    }}
+"""
