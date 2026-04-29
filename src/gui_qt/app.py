@@ -128,11 +128,13 @@ class TafelAnalyzerApp(QMainWindow):
         from gui_qt.controllers.file_ctrl import FileController
         from gui_qt.controllers.fitting_ctrl import FittingController
         from gui_qt.controllers.comparison_ctrl import ComparisonController
+        from gui_qt.controllers.export_ctrl import ExportController
         from gui_qt.central.summary_table import SummaryTable
 
         self.files = FileController(self)
         self.fitting = FittingController(self)
         self.comparison = ComparisonController(self)
+        self.export_mgr = ExportController(self)
 
         # Wire file panel
         self.file_panel.files_loaded.connect(self.files.on_files_loaded)
@@ -143,6 +145,9 @@ class TafelAnalyzerApp(QMainWindow):
 
         # Wire formula panel
         self.formula_panel.apply_clicked.connect(self.fitting.run_fit)
+
+        # Wire chart toolbar
+        self.chart_toolbar.save_image_clicked.connect(self.export_mgr.export_current)
 
         # Wire comparison panel
         self.comparison_panel.delete_selected_clicked.connect(self.comparison.delete_selected)
