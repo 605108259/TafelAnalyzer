@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
     QListWidgetItem, QLabel, QLineEdit, QColorDialog, QCheckBox,
@@ -10,7 +8,7 @@ from PySide6.QtCore import Signal, Qt, QEvent
 
 from gui_qt.theme import (
     BUTTON_STYLE, PANEL_STYLE, TEXT_PRIMARY, TEXT_SECONDARY,
-    ACCENT, BG_SELECTED, BG_HOVER, ACCENT_BUTTON_STYLE, DANGER,
+    ACCENT, BG_SELECTED, ACCENT_BUTTON_STYLE, DANGER,
 )
 
 
