@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.egg
+
+# Build
+build/
+dist/
+*.spec
+installer_output/
+
+# IDE
+.vscode/
+.idea/
+
+# Project specific
+tdms_tafel_gui_settings.json
+
+# Claude
+.claude/
+
+# Worktrees
+.worktrees/

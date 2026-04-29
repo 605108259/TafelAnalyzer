@@ -1,0 +1,11 @@
+Z60W Data File: Version 1.1
+CorrTest for Windows: SN CS2350H2107595  V5.6.1102.3  2.5H6.201207
+Sweep Frequency: Control Voltage
+Date:3-24-2026   Time:21:15:00
+Comment
+ExpParmas:ExpType=ID_EISVSFRQ&-&Attenual=0&-&Tran_Frq_H=1000&-&Tran_Frq_L=10&-&Init_Fre=1000000&-&Final_Fre=0.1&-&Range_High=3&-&Range_Mid=4&-&Range_Low=9&-&Range_AutoEn=1&-&Range_Min=4&-&Mode=1&-&Filter_H=2&-&Filter_M=3&-&Filter_L=4&-&Filter_Fre=10&-&ADS_EN=1&-&ADS_Fre=200&-&Filter_AutoEn=0&-&Period_Min=2&-&TenTwice=10&-&SineAmp=10&-&SineBias=0&-&IsLine=False&-&VsOcp=vsOCP&-&ParamsType=3&-&FreSlopeK=1&-&CheckSineAmp=0&-&TestPoints=70&-&FileName=E:\Electrochemical data\CSQ\gra-pt\3.24-gra\gra-eis_2026_03_24_21_14_48.z60&-&FilePath=E:\Electrochemical data\CSQ\gra-pt\3.24-gra\gra-eis_2026_03_24_21_14_48.z60&-&Comment=&-&IsFrq=True&-&SampleInter=0.01&-&SampleFrq=100&-&Number=0&-&EnableAxisType=True&-&AxisType=EIvsTime&-&OcpValue=-0.046534&-&IsStopEvent=False&-&IsStop=False&-&IsStopCheck=True&-&Frq=5&-&ExpTime=299.5728&-&DevParam=VoltRange=2&|&WaitSecond=5&|&IsCurrAutoRange=True&|&IsVoltAutoRange=True&|&OnlyInc=True&|&AutoMinCurrRange=6&|&IsIR=False&|&IrValue=100&|&VoltRule=1&|&CurrRule=1&|&XiaoboqiEnable=True&|&Xianboqi=True&|&ManualCurRange=3&|&IsContainsUnit=False&|&LowFilter=True&|&DigitalSmoothMode=0&|&DigitLPFCount=5&|&LineFre=0&|&OcpState=True&|&DeltaMaxOcp=20&|&BaseIO=6B5A00&|&GNDMode=0&|&IsLowSpeedFilter=True&-&CellParam=Area=1&|&Density=1&|&Dangliang=1&|&Type=6&|&REValue=0.098&|&Temp=25&|&Stern=18&|&Enable=True&|&IsGetTemp=False&|&EnableSpeed=False&|&RotatingSpeed=3200&-&AuxDeviceParams=VoltRange=2&|&WaitSecond=5&|&IsCurrAutoRange=True&|&IsVoltAutoRange=True&|&OnlyInc=True&|&AutoMinCurrRange=6&|&IsIR=False&|&IrValue=100&|&VoltRule=1&|&CurrRule=1&|&XiaoboqiEnable=True&|&Xianboqi=True&|&ManualCurRange=3&|&IsContainsUnit=True&|&LowFilter=False&|&DigitalSmoothMode=1&|&DigitLPFCount=5&|&LineFre=0&|&OcpState=False&|&DeltaMaxOcp=10&|&BaseIO=230200&|&GNDMode=1&|&IsLowSpeedFilter=False&-&AuxIO=230200&-&ExpType=ID_EISVSFRQ&-&ExtData=False&-&Issampling=True&-&EnablePause=False&-&IsSoftLvbo=False&-&Cycles=1&-&IsPreScan=False&-&IsPreScanOpen=False
+Surface Area:           1
+Density:                1
+Weight:                 1
+  Freq (Hz)     Ampl(mV)       Bias(V)      Time(Sec)       Z'(Ohm.cm^2)    Z''(Ohm.cm^2)        GD       Err      Range
+End Comments
