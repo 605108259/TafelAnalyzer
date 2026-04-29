@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QStackedWidget, QLabel
 from PySide6.QtCore import Qt
 
-from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_FORMULA, PANEL_SEGMENTS, PANEL_PARAMS
+from gui_qt.activity_bar import ActivityBar, PANEL_FILES
 from gui_qt.panels.file_panel import FilePanel
 from gui_qt.panels.formula_panel import FormulaPanel
 from gui_qt.panels.segment_panel import SegmentPanel
@@ -132,20 +132,14 @@ class TafelAnalyzerApp(QMainWindow):
         self.activity_bar.set_active(PANEL_FILES)
 
     def _on_panel_clicked(self, panel_id: int) -> None:
-        if panel_id == -1:
-            # Collapse side panel
-            self.side_stack.setFixedWidth(0)
-            self.side_stack.hide()
-            return
-        if self.side_stack.isHidden():
-            self.side_stack.show()
-            self.side_stack.setFixedWidth(320)
+        self.side_stack.show()
+        self.side_stack.setFixedWidth(320)
         self.side_stack.setCurrentIndex(panel_id)
 
     def _switch_mode(self, mode: str) -> None:
         if mode == "single":
             self._app_state["comparison_mode"] = False
-            self.side_stack.setCurrentIndex(PANEL_SEGMENTS)
+            self.side_stack.setCurrentIndex(2)  # segment panel
             if hasattr(self, "summary_table"):
                 self.summary_table.hide()
         else:
