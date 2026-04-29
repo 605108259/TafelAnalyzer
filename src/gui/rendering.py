@@ -415,3 +415,17 @@ def draw_placeholder(app: TafelAnalyzerApp) -> None:
 def p_get_segment_color(app, segment_index, file_path=None):
     from gui.palette import get_segment_color
     return get_segment_color(app, segment_index, file_path=file_path)
+
+
+def draw_placeholder_fig(fig, canvas, axes_list):
+    """Draw placeholder on matplotlib figure/canvas (Qt-compatible)."""
+    fig.clear()
+    ax = fig.add_subplot(111)
+    ax.text(0.5, 0.5, "请选择数据文件并输入公式\n手动模式下可在右侧 Tafel 图框选区域",
+            ha="center", va="center", fontsize=16, color="#475569",
+            transform=ax.transAxes)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    canvas.draw_idle()
