@@ -92,7 +92,7 @@ class FittingController(BaseAppController):
         if channels is None:
             return
 
-        params = app.param_bar.get_params()
+        params = app.toolbar.get_params()
 
         # Parse e_eq
         try:
@@ -139,7 +139,7 @@ class FittingController(BaseAppController):
             params.get("fit_priority", "斜率更低优先")
         )
 
-        pot_f, cur_f = app.formula_panel.get_formulas()
+        pot_f, cur_f = app.toolbar.get_formulas()
         active_index = state.get("active_segment_index", 0)
         segments = state.get("segments", [])
         if not segments:
@@ -177,11 +177,11 @@ class FittingController(BaseAppController):
         app._app_state["prepared_by_segment"] = {prepared.segment.index: prepared}
 
         # Update segment panel with fit results
-        app.segment_panel.set_segments(
-            app._app_state["segments"],
-            app._app_state.get("active_segment_index", 0),
-            app._app_state.get("segment_colors", {}),
-            fit_by,
+        app.file_segment_panel.update_segment_state(
+            active_index=app._app_state.get("active_segment_index", 0),
+            checked_indices=set(app._app_state.get("selected_segment_indices", [])),
+            colors=app._app_state.get("segment_colors", {}),
+            fit_by_segment=app._app_state.get("fit_by_segment", {}),
         )
 
         # Render chart via gui.rendering.render_figure (adapted for Qt
