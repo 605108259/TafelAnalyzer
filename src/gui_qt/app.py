@@ -42,8 +42,3 @@ class TafelAnalyzerApp(QMainWindow):
 
     def _init_controllers(self) -> None:
         pass
-
-
-class ActivityBar(QWidget):
-    """48px vertical icon strip for panel switching."""
-    pass
