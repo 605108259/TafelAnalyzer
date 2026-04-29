@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QS
 from PySide6.QtCore import Qt
 
 from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_FORMULA, PANEL_SEGMENTS, PANEL_PARAMS
+from gui_qt.panels.file_panel import FilePanel
 from gui_qt.theme import BG_WINDOW
 
 
@@ -48,6 +49,12 @@ class TafelAnalyzerApp(QMainWindow):
         # Side panel stack
         self.side_stack = QStackedWidget()
         self.side_stack.setFixedWidth(320)
+
+        # Add panels
+        self.file_panel = FilePanel()
+        self.side_stack.addWidget(self.file_panel)  # index 0 -> PANEL_FILES
+        # Future panels will be added here (PANEL_FORMULA, PANEL_SEGMENTS, PANEL_PARAMS)
+
         layout.addWidget(self.side_stack)
 
         # Central area
