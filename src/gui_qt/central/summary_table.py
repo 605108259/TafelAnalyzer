@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
+from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 from PySide6.QtCore import Qt
 
 
@@ -11,9 +11,9 @@ class SummaryTable(QTableWidget):
         super().__init__(parent)
         self.setColumnCount(5)
         self.setHorizontalHeaderLabels(["别名", "段", "斜率 (mV/dec)", "R²", "点数"])
-        self.setSelectionBehavior(self.SelectRows)
-        self.setSelectionMode(self.SingleSelection)
-        self.setEditTriggers(self.NoEditTriggers)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setAlternatingRowColors(True)
         self.setSortingEnabled(True)
         self.horizontalHeader().setStretchLastSection(True)

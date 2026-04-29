@@ -70,8 +70,11 @@ class TafelAnalyzerApp(QMainWindow):
         }
 
     def _load_settings(self) -> None:
-        from gui import settings as s
-        s.load_app_settings(self)
+        try:
+            from gui import settings as s
+            s.load_app_settings(self)
+        except Exception:
+            pass  # CTk widget references don't exist in Qt mode
 
     def _build_ui(self) -> None:
         central = QWidget()
