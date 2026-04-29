@@ -1,10 +1,14 @@
-"""向后兼容 facade — 所有 GUI 实现已迁移至 gui/ 子包。
+"""向后兼容 facade — GUI 已迁移至 gui_qt/ (PySide6)。
 
-新代码请直接从 gui 导入：
-    from gui import TafelAnalyzerApp
-    from gui.app import TafelAnalyzerApp
+新代码请直接从 gui_qt 导入：
+    from gui_qt.app import TafelAnalyzerApp
 """
-from gui.app import DndCTk, TafelAnalyzerApp  # noqa: F401
+try:
+    from gui_qt.app import TafelAnalyzerApp  # noqa: F401
+except ImportError:
+    from gui.app import TafelAnalyzerApp  # noqa: F401 fallback to CTk
+
+# Legacy re-exports from gui (shared between CTk and Qt versions)
 from gui.theme import (  # noqa: F401
     ACCENT,
     ACCENT_HOVER,
@@ -55,10 +59,14 @@ from gui.settings import _resolve_app_settings_path  # noqa: F401
 
 
 def build_app():
-    """向后兼容包装器，返回 TafelAnalyzerApp 实例。"""
+    """返回 TafelAnalyzerApp 实例 (PySide6 Qt 版本)。"""
     return TafelAnalyzerApp()
 
 
 if __name__ == "__main__":
-    app = build_app()
-    app.mainloop()
+    from PySide6.QtWidgets import QApplication
+    import sys
+    qapp = QApplication(sys.argv)
+    window = build_app()
+    window.show()
+    sys.exit(qapp.exec())

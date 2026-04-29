@@ -1,4 +1,4 @@
-"""Tafel Analyzer GUI 启动入口"""
+"""Tafel Analyzer GUI 启动入口 (PySide6 Qt 版本)"""
 import sys
 from pathlib import Path
 
@@ -7,7 +7,10 @@ _src = str(Path(__file__).parent / "src")
 if _src not in sys.path:
     sys.path.insert(0, _src)
 
-from gui.app import TafelAnalyzerApp
+from PySide6.QtWidgets import QApplication
+from gui_qt.app import TafelAnalyzerApp
 
-app = TafelAnalyzerApp()
-app.mainloop()
+qapp = QApplication(sys.argv)
+window = TafelAnalyzerApp()
+window.show()
+sys.exit(qapp.exec())
