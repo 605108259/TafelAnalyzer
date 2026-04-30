@@ -117,7 +117,7 @@ class ComparisonController(BaseAppController):
             if item.item_id == item_id:
                 item.color = color
                 break
-        self._rerender()
+        self.refresh_list()
 
     def rename(self, item_id: str, new_name: str) -> None:
         for item in self.app._app_state.get("comparison_items", []):
@@ -156,8 +156,7 @@ class ComparisonController(BaseAppController):
                     "r2": item.fit.r2,
                     "n_points": item.fit.selected_count,
                 })
-        if hasattr(self.app, "summary_table"):
-            self.app.summary_table.set_items(table_data)
+        self.app.summary_table.set_items(table_data)
 
     def _rerender(self) -> None:
         if self.app._app_state.get("comparison_mode"):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel
 
 from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE
@@ -77,8 +79,35 @@ class TafelAnalyzerApp(QMainWindow):
         try:
             from gui import settings as s
             s.load_app_settings(self)
-        except (ImportError, AttributeError, KeyError):
-            pass  # CTk widget references don't exist in Qt mode
+        except (ImportError, AttributeError, KeyError) as exc:
+            # Expected in Qt mode — CTk widget attrs don't exist
+            import logging
+            logging.debug(
+                "Settings load skipped (Qt mode): %s: %s",
+                type(exc).__name__, exc,
+            )
+
+    def _on_formulas_changed(self, pot_f: str, cur_f: str) -> None:
+        path = self._app_state.get("tdms_path")
+        if path is None:
+            return
+        key = str(path)
+        cache = self._app_state.setdefault("file_ui_cache", {})
+        entry = cache.setdefault(key, {})
+        entry["potential_formula"] = pot_f
+        entry["current_formula"] = cur_f
+
+    def _on_params_changed(self, params: dict) -> None:
+        path = self._app_state.get("tdms_path")
+        if path is None:
+            return
+        key = str(path)
+        cache = self._app_state.setdefault("file_ui_cache", {})
+        entry = cache.setdefault(key, {})
+        for k in ("e_eq", "window_range", "eta_range", "logj_range",
+                  "min_r2", "fit_priority"):
+            if k in params:
+                entry[k] = params[k]
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -123,13 +152,18 @@ class TafelAnalyzerApp(QMainWindow):
         from gui_qt.central.toolbar import ToolBar
         from gui_qt.central.chart_widget import ChartArea
         from gui_qt.central.chart_toolbar import ChartToolBar
+        from gui_qt.central.summary_table import SummaryTable
 
         self.toolbar = ToolBar()
         self.chart = ChartArea()
         # Compatibility aliases for old-style gui.comparison rendering
         self.fig = self.chart.fig
         self.canvas = self.chart.canvas
-        self.chart_toolbar = ChartToolBar()
+        self.chart_toolbar = ChartToolBar(self.chart)
+
+        self.summary_table = SummaryTable()
+        self.summary_table.setFixedHeight(140)
+        self.summary_table.hide()  # shown only in comparison mode
 
         self.status_bar = QLabel("就绪")
         self.status_bar.setStyleSheet(
@@ -140,6 +174,7 @@ class TafelAnalyzerApp(QMainWindow):
         chart_layout.addWidget(self.toolbar)
         chart_layout.addWidget(self.chart, stretch=1)
         chart_layout.addWidget(self.chart_toolbar)
+        chart_layout.addWidget(self.summary_table)
         chart_layout.addWidget(self.status_bar)
 
         self.right_stack.addWidget(chart_ws)  # index 0
@@ -166,12 +201,29 @@ class TafelAnalyzerApp(QMainWindow):
         if panel_id == PANEL_FILES:
             self.right_stack.setCurrentIndex(0)  # chart workspace
             self._app_state["comparison_mode"] = False
+            self.summary_table.hide()
         elif panel_id == PANEL_COMPARISON:
             self.right_stack.setCurrentIndex(0)  # chart workspace
             self._app_state["comparison_mode"] = True
+            self.summary_table.show()
         elif panel_id == PANEL_PALETTE:
             self.right_stack.setCurrentIndex(1)  # palette workspace
+            self.summary_table.hide()
             self._update_palette_workspace()
+
+    def _save_chart_image(self) -> None:
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存图表图片", "tafel_chart.png",
+            "PNG Image (*.png);;PDF (*.pdf);;SVG (*.svg)",
+        )
+        if not file_path:
+            return
+        try:
+            self.chart.fig.savefig(file_path, dpi=150, bbox_inches="tight")
+            self.status_bar.setText(f"图片已保存: {Path(file_path).name}")
+        except Exception as exc:
+            QMessageBox.critical(self, "保存失败", str(exc))
 
     def _update_palette_workspace(self):
         scheme_name = self._app_state.get("active_palette_scheme", "默认方案")
@@ -191,11 +243,13 @@ class TafelAnalyzerApp(QMainWindow):
             self.activity_bar.set_active(PANEL_FILES)
             self.side_stack.setCurrentIndex(PANEL_FILES)
             self.right_stack.setCurrentIndex(0)
+            self.summary_table.hide()
         else:
             self._app_state["comparison_mode"] = True
             self.activity_bar.set_active(PANEL_COMPARISON)
             self.side_stack.setCurrentIndex(PANEL_COMPARISON)
             self.right_stack.setCurrentIndex(0)
+            self.summary_table.show()
 
     def _init_controllers(self) -> None:
         from gui_qt.controllers.file_ctrl import FileController
@@ -256,5 +310,14 @@ class TafelAnalyzerApp(QMainWindow):
         ps.delete_scheme_clicked.connect(self.files.on_palette_delete)
 
         # Wire chart toolbar
-        self.chart_toolbar.save_image_clicked.connect(self.export_mgr.export_current)
+        self.chart_toolbar.save_image_clicked.connect(self._save_chart_image)
         self.chart_toolbar.manual_clicked.connect(self.fitting.enable_manual_mode)
+
+        # Wire toolbar formula/param persistence
+        self.toolbar.formulas_changed.connect(self._on_formulas_changed)
+        self.toolbar.params_changed.connect(self._on_params_changed)
+
+        # Wire palette workspace swatch clicks
+        self.palette_workspace.swatch_clicked.connect(
+            self.files.on_palette_color_changed
+        )

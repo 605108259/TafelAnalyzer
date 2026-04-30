@@ -110,7 +110,8 @@ class SegmentItemWidget(QWidget):
         self.setCursor(Qt.PointingHandCursor)
 
     def mousePressEvent(self, event):
-        self.activated.emit(self.segment_index)
+        if event.button() == Qt.LeftButton:
+            self.activated.emit(self.segment_index)
         super().mousePressEvent(event)
 
     def update_state(self, is_active: bool, is_checked: bool, r2: float | None, color: str):
@@ -342,7 +343,11 @@ class FileSegmentPanel(QWidget):
     def _on_remove_current(self):
         if not self._file_paths:
             return
-        current = self._file_paths[0]
+        current_row = self.file_list.currentRow()
+        if current_row < 0 or current_row >= len(self._file_paths):
+            current = self._file_paths[0]  # fallback
+        else:
+            current = self._file_paths[current_row]
         confirm = QMessageBox.question(
             self, "确认移除", f"确定要移除文件吗？\n\n{current.name}",
             QMessageBox.Yes | QMessageBox.No,

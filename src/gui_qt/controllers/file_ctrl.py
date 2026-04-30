@@ -77,6 +77,12 @@ class FileController(BaseAppController):
 
     def _load_file(self, path: Path) -> None:
         app = self.app
+        # Clean up previous worker
+        if self._worker and self._worker.isRunning():
+            self._worker.finished.disconnect()
+            self._worker.error.disconnect()
+            self._worker.quit()
+            self._worker.wait(3000)
         app.status_bar.setText(f"正在加载 {path.name} …")
         app._app_state["tdms_path"] = path
         formulas = app.toolbar.get_formulas()

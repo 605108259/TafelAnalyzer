@@ -31,6 +31,10 @@ class ChartArea(QWidget):
         self.canvas.setStyleSheet(f"background: {BG_CARD};")
         layout.addWidget(self.canvas, stretch=1)
 
+        # Hidden NavigationToolbar2QT for programmatic zoom/pan/home/back/forward
+        self._nav_toolbar = NavigationToolbar2QT(self.canvas, self)
+        self._nav_toolbar.hide()
+
         # Store for external code that needs to access the figure
         self.axes: list = []
 
