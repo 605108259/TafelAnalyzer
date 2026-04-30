@@ -11,27 +11,36 @@ from PySide6.QtCore import Signal, Qt
 
 from gui_qt.theme import (
     PANEL_STYLE, SMALL_BUTTON_STYLE, DANGER_BUTTON_STYLE,
-    ACCENT_BUTTON_STYLE, INPUT_STYLE, LIST_STYLE, CHECKBOX_STYLE,
-    TEXT_PRIMARY, TEXT_SECONDARY, SUCCESS, ACCENT, BG_HOVER,
+    ACCENT_BUTTON_STYLE, LIST_STYLE, CHECKBOX_STYLE,
+    TEXT_PRIMARY, TEXT_SECONDARY, SUCCESS, ACCENT, BG_HOVER, BG_SELECTED,
 )
+from core.types import COMPARISON_COLORS as _DEFAULT_COLORS
 
 
 class FileListItem(QWidget):
     """Custom widget for each file row: name | ✓ badge | × remove."""
 
     remove_clicked = Signal(object)  # Path
+    renamed = Signal(object, str)  # Path, new_name(stem)
 
-    def __init__(self, file_path: Path, is_processed: bool = False):
+    def __init__(self, file_path: Path, display_name: str, is_processed: bool = False):
         super().__init__()
         self.setObjectName("FileItem")
         self.file_path = file_path
+        self._display_name = display_name
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 2, 8, 2)
         layout.setSpacing(6)
 
-        name = QLabel(file_path.name)
-        name.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px;")
-        layout.addWidget(name, stretch=1)
+        self.name_edit = QLineEdit(display_name)
+        self.name_edit.setReadOnly(True)
+        self.name_edit.setFocusPolicy(Qt.NoFocus)
+        self.name_edit.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.name_edit.setFrame(False)
+        self.name_edit.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; background: transparent;")
+        self.name_edit.setToolTip(str(file_path))
+        self.name_edit.editingFinished.connect(self._finish_rename)
+        layout.addWidget(self.name_edit, stretch=1)
 
         if is_processed:
             badge = QLabel("✓")
@@ -45,33 +54,46 @@ class FileListItem(QWidget):
             f"QPushButton:hover {{ background: #fee2e2; }}"
         )
         btn.setCursor(Qt.PointingHandCursor)
+        btn.setFocusPolicy(Qt.NoFocus)
         btn.clicked.connect(lambda: self.remove_clicked.emit(self.file_path))
         layout.addWidget(btn)
 
+    def begin_rename(self) -> None:
+        self.name_edit.setReadOnly(False)
+        self.name_edit.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        self.name_edit.setFocus(Qt.MouseFocusReason)
+        self.name_edit.selectAll()
+
+    def _finish_rename(self) -> None:
+        if self.name_edit.isReadOnly():
+            return
+        text = self.name_edit.text().strip()
+        if not text:
+            text = self._display_name
+            self.name_edit.setText(text)
+        self.name_edit.setReadOnly(True)
+        self.name_edit.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._display_name = text
+        self.renamed.emit(self.file_path, text)
+
 
 class SegmentItemWidget(QWidget):
-    """One row in segment list: ▶ active | ☑ checkbox | label | R² | 🎨 color."""
+    """One row in segment list: ☑ checkbox | label | 🎨 color."""
 
     activated = Signal(int)
     toggled = Signal(int, bool)
     color_clicked = Signal(int)
 
     def __init__(self, index: int, label: str, color: str,
-                 is_active: bool, is_checked: bool, r2: float | None):
+                 is_active: bool, is_checked: bool):
         super().__init__()
         self.setObjectName("SegmentItem")
         self.segment_index = index
+        self._active = is_active
+        self._hover = False
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(4)
-
-        # Active indicator
-        active_symbol = "▶" if is_active else "  "
-        active_color = ACCENT if is_active else TEXT_SECONDARY
-        self.active_label = QLabel(active_symbol)
-        self.active_label.setStyleSheet(f"color: {active_color}; font-size: 10px;")
-        self.active_label.setFixedWidth(16)
-        layout.addWidget(self.active_label)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setSpacing(6)
 
         # Checkbox
         self.cb = QCheckBox()
@@ -82,50 +104,56 @@ class SegmentItemWidget(QWidget):
 
         # Label
         name = QLabel(label)
-        name.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px;")
+        name.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; background: transparent;")
         layout.addWidget(name, stretch=1)
-
-        # R² badge
-        if r2 is not None:
-            r2_label = QLabel(f"R²={r2:.4f}")
-            r2_label.setStyleSheet(f"color: {SUCCESS}; font-size: 11px;")
-            layout.addWidget(r2_label)
-        else:
-            na = QLabel("未拟合")
-            na.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
-            layout.addWidget(na)
 
         # Color swatch
         self.color_btn = QPushButton()
-        self.color_btn.setFixedSize(20, 20)
+        self.color_btn.setFixedSize(16, 16)
         self.color_btn.setStyleSheet(
-            f"QPushButton {{ background: {color}; border: 2px solid white; border-radius: 10px; }}"
+            f"QPushButton {{ background: {color}; border: 1px solid #e2e8f0; border-radius: 4px; }}"
             f"QPushButton:hover {{ border-color: {ACCENT}; }}"
         )
         self.color_btn.setCursor(Qt.PointingHandCursor)
         self.color_btn.clicked.connect(lambda: self.color_clicked.emit(index))
         layout.addWidget(self.color_btn)
 
-        # Click on row body activates segment
         self.setCursor(Qt.PointingHandCursor)
+        self._apply_bg()
+
+    def enterEvent(self, event):
+        self._hover = True
+        self._apply_bg()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hover = False
+        self._apply_bg()
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.activated.emit(self.segment_index)
-        super().mousePressEvent(event)
 
-    def update_state(self, is_active: bool, is_checked: bool, r2: float | None, color: str):
-        self.active_label.setText("▶" if is_active else "  ")
-        self.active_label.setStyleSheet(
-            f"color: {ACCENT if is_active else TEXT_SECONDARY}; font-size: 10px;"
-        )
+    def update_state(self, is_active: bool, is_checked: bool, color: str):
+        self._active = is_active
         self.cb.blockSignals(True)
         self.cb.setChecked(is_checked)
         self.cb.blockSignals(False)
         self.color_btn.setStyleSheet(
-            f"QPushButton {{ background: {color}; border: 2px solid white; border-radius: 10px; }}"
+            f"QPushButton {{ background: {color}; border: 1px solid #e2e8f0; border-radius: 4px; }}"
             f"QPushButton:hover {{ border-color: {ACCENT}; }}"
         )
+        self._apply_bg()
+
+    def _apply_bg(self) -> None:
+        if self._active:
+            bg = BG_SELECTED
+        elif self._hover:
+            bg = BG_HOVER
+        else:
+            bg = "transparent"
+        self.setStyleSheet(f"QWidget#SegmentItem {{ background: {bg}; border-radius: 6px; }}")
 
 
 class FileSegmentPanel(QWidget):
@@ -135,8 +163,8 @@ class FileSegmentPanel(QWidget):
     files_selected = Signal(list)           # list[Path]
     file_activated = Signal(object)         # Path
     file_removed = Signal(object)           # Path
+    file_renamed = Signal(object, str)      # Path, new_name(stem)
     cache_import_requested = Signal()
-    export_name_changed = Signal(str)
 
     # Segment signals
     segment_activated = Signal(int)
@@ -200,27 +228,13 @@ class FileSegmentPanel(QWidget):
         btn_remove.clicked.connect(self._on_remove_current)
         title_row.addWidget(btn_remove)
 
-        file_header_layout.addLayout(title_row)
-
-        # Export row: name input + buttons
-        export_row = QHBoxLayout()
-        export_row.setSpacing(4)
-        export_row.addWidget(QLabel("导出名:"))
-        self.export_name_input = QLineEdit()
-        self.export_name_input.setPlaceholderText("默认使用文件名")
-        self.export_name_input.setStyleSheet(INPUT_STYLE)
-        self.export_name_input.textChanged.connect(
-            lambda t: self.export_name_changed.emit(t)
-        )
-        export_row.addWidget(self.export_name_input, stretch=1)
-
         btn_export_cur = QPushButton("💾")
         btn_export_cur.setToolTip("导出当前结果")
         btn_export_cur.setFixedSize(28, 28)
         btn_export_cur.setStyleSheet(SMALL_BUTTON_STYLE)
         btn_export_cur.setCursor(Qt.PointingHandCursor)
         btn_export_cur.clicked.connect(self.export_current.emit)
-        export_row.addWidget(btn_export_cur)
+        title_row.addWidget(btn_export_cur)
 
         btn_export_batch = QPushButton("📦")
         btn_export_batch.setToolTip("批量导出")
@@ -228,9 +242,9 @@ class FileSegmentPanel(QWidget):
         btn_export_batch.setStyleSheet(SMALL_BUTTON_STYLE)
         btn_export_batch.setCursor(Qt.PointingHandCursor)
         btn_export_batch.clicked.connect(self.export_batch.emit)
-        export_row.addWidget(btn_export_batch)
+        title_row.addWidget(btn_export_batch)
 
-        file_header_layout.addLayout(export_row)
+        file_header_layout.addLayout(title_row)
         outer.addWidget(file_header)
 
         # ━━ QSplitter: file list / segment section ━━
@@ -241,6 +255,7 @@ class FileSegmentPanel(QWidget):
         # File list
         self.file_list = QListWidget()
         self.file_list.setStyleSheet(LIST_STYLE)
+        self.file_list.itemClicked.connect(self._on_file_single_click)
         self.file_list.itemDoubleClicked.connect(self._on_file_double_click)
         splitter.addWidget(self.file_list)
 
@@ -303,6 +318,7 @@ class FileSegmentPanel(QWidget):
         # Segment list
         self.segment_list = QListWidget()
         self.segment_list.setStyleSheet(LIST_STYLE)
+        self.segment_list.setSelectionMode(QListWidget.NoSelection)
         segment_layout.addWidget(self.segment_list, stretch=1)
 
         splitter.addWidget(segment_container)
@@ -314,6 +330,7 @@ class FileSegmentPanel(QWidget):
         # Internal state
         self._file_paths: list[Path] = []
         self._processed: set[str] = set()
+        self._file_names: dict[str, str] = {}
         self._segments: list[dict] = []
         self._active_index: int = 0
         self._checked_indices: set[int] = set()
@@ -331,11 +348,18 @@ class FileSegmentPanel(QWidget):
         paths = [Path(p) for p in paths_str]
         new_paths = [p for p in paths if p not in self._file_paths]
         self._file_paths.extend(new_paths)
+        for p in new_paths:
+            self._file_names.setdefault(str(p), p.stem)
         self._rebuild_file_list()
         if new_paths:
             self.files_selected.emit(new_paths)
 
     def _on_file_double_click(self, item: QListWidgetItem):
+        widget = self.file_list.itemWidget(item)
+        if isinstance(widget, FileListItem):
+            widget.begin_rename()
+
+    def _on_file_single_click(self, item: QListWidgetItem):
         widget = self.file_list.itemWidget(item)
         if isinstance(widget, FileListItem):
             self.file_activated.emit(widget.file_path)
@@ -362,8 +386,10 @@ class FileSegmentPanel(QWidget):
         self.file_list.clear()
         for path in self._file_paths:
             item = QListWidgetItem()
-            widget = FileListItem(path, str(path) in self._processed)
+            display_name = self._file_names.get(str(path), path.stem)
+            widget = FileListItem(path, display_name, str(path) in self._processed)
             widget.remove_clicked.connect(self._on_file_remove)
+            widget.renamed.connect(self._on_file_renamed)
             item.setSizeHint(widget.sizeHint())
             self.file_list.addItem(item)
             self.file_list.setItemWidget(item, widget)
@@ -382,14 +408,29 @@ class FileSegmentPanel(QWidget):
             self._rebuild_file_list()
             self.file_removed.emit(path)
 
-    def set_file_paths(self, paths: list[Path], processed: set[str]) -> None:
+    def _on_file_renamed(self, path: Path, new_name: str) -> None:
+        self._file_names[str(path)] = new_name
+        self.file_renamed.emit(path, new_name)
+
+    def set_file_paths(self, paths: list[Path], processed: set[str], *, names: dict[str, str] | None = None) -> None:
         self._file_paths = list(paths)
         self._processed = set(processed)
+        if names is not None:
+            self._file_names = dict(names)
+        for p in self._file_paths:
+            self._file_names.setdefault(str(p), p.stem)
         self._rebuild_file_list()
 
     def set_processed(self, path: Path) -> None:
         self._processed.add(str(path))
         self._rebuild_file_list()
+
+    def set_current_file(self, path: Path) -> None:
+        try:
+            row = self._file_paths.index(path)
+        except ValueError:
+            return
+        self.file_list.setCurrentRow(row)
 
     # ━━ Segment operations ━━
 
@@ -406,14 +447,12 @@ class FileSegmentPanel(QWidget):
         self.segment_list.clear()
         for seg in self._segments:
             idx = seg["index"]
-            color = self._segment_colors.get(idx, "#94a3b8")
+            color = self._segment_colors.get(idx, _DEFAULT_COLORS[idx % len(_DEFAULT_COLORS)])
             is_active = idx == self._active_index
             is_checked = idx in self._checked_indices
-            fit = fit_by_segment.get(idx)
-            r2 = fit.r2 if fit is not None else None
 
             item = QListWidgetItem()
-            widget = SegmentItemWidget(idx, seg["label"], color, is_active, is_checked, r2)
+            widget = SegmentItemWidget(idx, seg["label"], color, is_active, is_checked)
             widget.activated.connect(self.segment_activated.emit)
             widget.toggled.connect(self.segment_toggled.emit)
             widget.color_clicked.connect(self.segment_color_changed.emit)
@@ -424,6 +463,12 @@ class FileSegmentPanel(QWidget):
         self.seg_count_label.setText(
             f"📋 分段 ({len(self._checked_indices)}/{len(self._segments)})"
         )
+        for i in range(self.segment_list.count()):
+            item = self.segment_list.item(i)
+            w = self.segment_list.itemWidget(item)
+            if isinstance(w, SegmentItemWidget) and w.segment_index == self._active_index:
+                self.segment_list.setCurrentRow(i)
+                break
 
     def update_segment_state(self, active_index: int, checked_indices: set[int],
                               colors: dict[int, str], fit_by_segment: dict) -> None:
@@ -436,12 +481,10 @@ class FileSegmentPanel(QWidget):
             w = self.segment_list.itemWidget(item)
             if isinstance(w, SegmentItemWidget):
                 idx = w.segment_index
-                fit = fit_by_segment.get(idx)
                 w.update_state(
                     is_active=(idx == active_index),
                     is_checked=(idx in self._checked_indices),
-                    r2=fit.r2 if fit is not None else None,
-                    color=self._segment_colors.get(idx, "#94a3b8"),
+                    color=self._segment_colors.get(idx, _DEFAULT_COLORS[idx % len(_DEFAULT_COLORS)]),
                 )
         self.seg_count_label.setText(
             f"📋 分段 ({len(self._checked_indices)}/{len(self._segments)})"
@@ -456,9 +499,3 @@ class FileSegmentPanel(QWidget):
         if active in schemes:
             self.palette_combo.setCurrentText(active)
         self.palette_combo.blockSignals(False)
-
-    def set_export_name(self, name: str) -> None:
-        self.export_name_input.setText(name)
-
-    def get_export_name(self) -> str:
-        return self.export_name_input.text().strip()

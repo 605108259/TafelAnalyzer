@@ -19,12 +19,12 @@ class BatchExportWorker(QThread):
     error = Signal(str)
 
     def __init__(self, result_cache: dict, current_result_keys: dict,
-                 out_dir: Path, export_name_prefix: str = ""):
+                 out_dir: Path, file_name_map: dict[str, str] | None = None):
         super().__init__()
         self.result_cache = result_cache
         self.current_result_keys = current_result_keys
         self.out_dir = out_dir
-        self.export_name_prefix = export_name_prefix
+        self.file_name_map = dict(file_name_map or {})
 
     def run(self) -> None:
         from core.export import export_processed_txt, export_fit_npz, plot_tafel
@@ -43,7 +43,7 @@ class BatchExportWorker(QThread):
                 continue
             try:
                 stem = Path(path_key).stem
-                prefix = self.export_name_prefix or stem
+                prefix = (self.file_name_map.get(path_key) or "").strip() or stem
                 seg_idx = prepared.segment.index + 1
                 base = self.out_dir / f"{prefix}_seg{seg_idx}"
                 export_processed_txt(base.with_suffix(".txt"), prepared, fit)
@@ -76,9 +76,10 @@ class ExportController(BaseAppController):
         if path is None:
             return
 
-        export_name = app.file_segment_panel.get_export_name()
-        if not export_name:
-            export_name = path.stem
+        export_name = (
+            app._app_state.get("file_ui_cache", {}).get(str(path), {}).get("file_alias")
+            or path.stem
+        )
         default_name = f"{export_name}_tafel.txt"
 
         file_path, _ = QFileDialog.getSaveFileName(
@@ -115,7 +116,13 @@ class ExportController(BaseAppController):
         if not dir_path:
             return
 
-        export_name = app.file_segment_panel.get_export_name()
+        file_name_map = {
+            str(p): (
+                app._app_state.get("file_ui_cache", {}).get(str(p), {}).get("file_alias")
+                or p.stem
+            )
+            for p in app._app_state.get("selected_paths", [])
+        }
 
         # Clean up previous worker
         if self._batch_worker and self._batch_worker.isRunning():
@@ -125,7 +132,7 @@ class ExportController(BaseAppController):
 
         app.status_bar.setText("正在批量导出…")
         self._batch_worker = BatchExportWorker(
-            cache, keys, Path(dir_path), export_name,
+            cache, keys, Path(dir_path), file_name_map,
         )
         self._batch_worker.finished.connect(self._on_batch_finished)
         self._batch_worker.error.connect(self._on_batch_error)

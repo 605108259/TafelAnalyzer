@@ -100,13 +100,25 @@ LIST_STYLE = f"""
     QListWidget::item {{
         border-radius: 6px;
         padding: 4px 8px;
+        background: transparent;
     }}
-    QListWidget::item:hover {{
-        background: {BG_HOVER};
+"""
+
+CHECKBOX_STYLE = f"""
+    QCheckBox {{
+        spacing: 0px;
     }}
-    QListWidget::item:selected {{
-        background: {BG_SELECTED};
-        color: {TEXT_PRIMARY};
+    QCheckBox::indicator {{
+        width: 14px;
+        height: 14px;
+        border: 2px solid {BORDER};
+        border-radius: 2px;
+        background: {BG_CARD};
+    }}
+    QCheckBox::indicator:checked {{
+        background: {ACCENT};
+        border-color: {ACCENT};
+        image: url(data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='white' d='M5.5 11.5L2 8l1.5-1.5L5.5 8.5 11 3l1.5 1.5z'/></svg>);
     }}
 """
 
@@ -137,6 +149,21 @@ SMALL_BUTTON_STYLE = f"""
     QPushButton:hover {{
         background: {BG_HOVER};
         color: {TEXT_PRIMARY};
+    }}
+"""
+
+ICON_BUTTON_STYLE = f"""
+    QToolButton {{
+        border: none;
+        border-radius: 6px;
+        padding: 4px;
+        background: transparent;
+    }}
+    QToolButton:hover {{
+        background: {BG_HOVER};
+    }}
+    QToolButton:pressed {{
+        background: {BG_HOVER};
     }}
 """
 

@@ -333,7 +333,7 @@ def refresh_selector(app: TafelAnalyzerApp) -> None:
     selector = RectangleSelector(
         ax_tafel,
         app.fitting.on_manual_select,
-        useblit=False,
+        useblit=True,
         button=[1],
         minspanx=0.01,
         minspany=0.01,
@@ -341,7 +341,7 @@ def refresh_selector(app: TafelAnalyzerApp) -> None:
         interactive=False,
         props={"facecolor": "#60a5fa", "edgecolor": "#2563eb", "alpha": 0.18, "fill": True},
     )
-    selector.set_active(bool(app._app_state["manual_mode"]))
+    selector.set_active(bool(app._app_state.get("manual_mode", False)))
     app._app_state["selector"] = selector
 
 
@@ -361,7 +361,7 @@ def draw(
         )
     active_index = int(app._app_state.get("active_segment_index", prepared.segment.index))
     selected_indices = list(app._app_state.get("selected_segment_indices", []))
-    display_indices = sorted(set(selected_indices + [active_index]))
+    display_indices = sorted(set(selected_indices))
     p_map = app._app_state.get("prepared_by_segment") or {prepared.segment.index: prepared}
     f_map = app._app_state.get("fit_by_segment") or ({prepared.segment.index: fit} if fit is not None else {})
     fe_map = dict(app._app_state.get("fit_error_by_segment") or {})

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, Qt
 
 from core.fitting import prepare_series, auto_tafel_fit, manual_tafel_fit
 from core.types import PreparedSeries, TafelFit
@@ -110,9 +110,6 @@ class FittingController(BaseAppController):
             return
 
         selected_indices = list(state.get("selected_segment_indices", []))
-        active_index = state.get("active_segment_index", 0)
-        if active_index not in selected_indices:
-            selected_indices.append(active_index)
         if not selected_indices:
             return
 
@@ -256,6 +253,7 @@ class FittingController(BaseAppController):
         if app._app_state.get("channels") is None:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(app, "提示", "请先选择并加载数据文件")
+            app.toolbar.clear_nav_mode()
             return
         if app._app_state.get("_fitting_lock"):
             return
@@ -264,6 +262,18 @@ class FittingController(BaseAppController):
         if app._app_state.get("prepared") is not None:
             from gui.rendering import refresh_selector
             refresh_selector(app)
+        from PySide6.QtGui import QCursor
+        app.canvas.setCursor(QCursor(Qt.CrossCursor))
+
+    def disable_manual_mode(self) -> None:
+        app = self.app
+        app._app_state["manual_mode"] = False
+        from PySide6.QtGui import QCursor
+        app.canvas.setCursor(QCursor(Qt.ArrowCursor))
+        from gui.rendering import refresh_selector
+        refresh_selector(app)
+        if hasattr(app, "toolbar"):
+            app.toolbar.clear_nav_mode()
 
     def on_manual_select(self, eclick, erelease) -> None:
         """Handle RectangleSelector callback for manual fitting mode."""
@@ -274,7 +284,7 @@ class FittingController(BaseAppController):
         if any(v is None for v in coords):
             return
         try:
-            from gui.rendering import capture_axes_limits, draw
+            from gui.rendering import capture_axes_limits, draw, refresh_selector
 
             limits = capture_axes_limits(app)
             params = app.toolbar.get_params()
@@ -306,19 +316,18 @@ class FittingController(BaseAppController):
             app._app_state["fit_by_segment"][active_index] = fit
             app._app_state["fit_error_by_segment"].pop(active_index, None)
             app._app_state["fit"] = fit
-            app._app_state["manual_mode"] = False
 
             draw(app, prepared, fit, preserve_view_state=limits)
             app.status_bar.setText(
                 f"手动拟合完成: {fit.slope_mv_per_dec:.2f} mV/dec, R²={fit.r2:.4f}"
             )
-        except Exception as exc:
-            from gui.rendering import refresh_selector
-
-            app._app_state["manual_mode"] = False
-            app._app_state["selector"] = None
+            # Keep manual mode active for continuous selection
             refresh_selector(app)
+        except Exception as exc:
             app.status_bar.setText(f"手动拟合失败: {exc}")
+            # Keep manual mode active so user can try again
+            from gui.rendering import refresh_selector as rs
+            rs(app)
 
     def _on_fit_error(self, msg: str) -> None:
         """Handle fitting errors."""

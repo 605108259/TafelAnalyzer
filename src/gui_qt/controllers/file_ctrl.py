@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 from core.readers import read_data_all_channels
 from core.formula import normalize_formula
 from core.fitting import build_segment_infos
-from core.types import POTENTIAL_PREFERRED_NAMES, CURRENT_PREFERRED_NAMES
+from core.types import POTENTIAL_PREFERRED_NAMES, CURRENT_PREFERRED_NAMES, COMPARISON_COLORS
 from core.utils import pick_channel_name
 from gui_qt.controllers.base import BaseAppController
 
@@ -64,19 +64,55 @@ class FileController(BaseAppController):
     def __init__(self, app: TafelAnalyzerApp):
         super().__init__(app)
         self._worker: FileLoadWorker | None = None
+        self._refresh_palette_controls()
 
     # ━━ File operations ━━
 
     def on_files_loaded(self, paths: list[Path]) -> None:
         app = self.app
-        app._app_state["selected_paths"] = paths
-        self._load_file(paths[0])
+        existing = list(app._app_state.get("selected_paths", []))
+        merged = existing + [p for p in paths if p not in existing]
+        app._app_state["selected_paths"] = merged
+        app.file_segment_panel.set_file_paths(
+            merged,
+            processed=set(app._app_state.get("current_result_keys", {}).keys()),
+            names={
+                str(p): (app._app_state.get("file_ui_cache", {}).get(str(p), {}).get("file_alias") or p.stem)
+                for p in merged
+            },
+        )
+        if paths:
+            self._load_file(paths[0])
 
     def on_file_selected(self, path: Path) -> None:
+        self.app.file_segment_panel.set_current_file(path)
         self._load_file(path)
+
+    def on_file_renamed(self, path: Path, new_name: str) -> None:
+        app = self.app
+        key = str(path)
+        cache = app._app_state.setdefault("file_ui_cache", {})
+        entry = cache.setdefault(key, {})
+        entry["file_alias"] = new_name
+
+        for item in app._app_state.get("comparison_items", []):
+            if item.file_path != path:
+                continue
+            item.file_name = new_name
+            item.label = f"{new_name}-第{item.segment_index + 1}段"
+
+        if hasattr(app, "comparison_panel"):
+            app.comparison.refresh_list()
 
     def _load_file(self, path: Path) -> None:
         app = self.app
+        app._app_state["single_plot_view_state"] = None
+        app._app_state["single_plot_default_view_state"] = None
+        app._app_state["ax_tafel"] = None
+        app._app_state["manual_mode"] = False
+        app._app_state["selector"] = None
+        app.file_segment_panel.set_segments([], 0, set(), {}, {})
+        app.chart.clear_figure()
         # Clean up previous worker
         if self._worker and self._worker.isRunning():
             self._worker.finished.disconnect()
@@ -95,8 +131,26 @@ class FileController(BaseAppController):
         app = self.app
         app._app_state["channels"] = channels
         app._app_state["segments"] = [{"index": s.index, "label": s.label} for s in segments]
-        app._app_state["segment_colors"] = {}
-        segment_count = len(segments)
+
+        # Apply palette colors to new segments
+        scheme_name = app._app_state.get("active_palette_scheme", "默认方案")
+        scheme = app._app_state.get("palette_schemes", {}).get(scheme_name, {})
+        segment_colors = {}
+        for s in app._app_state["segments"]:
+            idx = s["index"]
+            color = scheme.get(str(idx))
+            if color:
+                segment_colors[idx] = color
+        app._app_state["segment_colors"] = segment_colors
+
+        app._app_state["prepared"] = None
+        app._app_state["fit"] = None
+        app._app_state["prepared_by_segment"] = {}
+        app._app_state["fit_by_segment"] = {}
+        app._app_state["fit_error_by_segment"] = {}
+
+        app._app_state["active_segment_index"] = 0
+        app._app_state["selected_segment_indices"] = [s.index for s in segments]
 
         # Update toolbar formulas
         app.toolbar.set_formulas(pot_f, cur_f)
@@ -114,12 +168,14 @@ class FileController(BaseAppController):
 
         # Update status
         path = app._app_state["tdms_path"]
+        app.file_segment_panel.set_current_file(path)
         app.file_segment_panel.set_processed(path)
         app.status_bar.setText(f"已加载 {path.name}")
 
         # Clear chart
         app.chart.clear_figure()
         self.file_loaded.emit()
+        app.fitting.run_fit()
 
     def _on_load_error(self, msg: str) -> None:
         self.app.status_bar.setText("加载失败")
@@ -165,12 +221,8 @@ class FileController(BaseAppController):
     def on_segment_activated(self, index: int) -> None:
         app = self.app
         app._app_state["active_segment_index"] = index
-        # Auto-select the active segment
-        selected = set(app._app_state.get("selected_segment_indices", []))
-        selected.add(index)
-        app._app_state["selected_segment_indices"] = sorted(selected)
         self._refresh_segment_panel()
-        app.fitting.run_fit()
+        self._rerender_current()
 
     def on_segment_toggled(self, index: int, checked: bool) -> None:
         app = self.app
@@ -181,6 +233,14 @@ class FileController(BaseAppController):
             selected.discard(index)
         app._app_state["selected_segment_indices"] = sorted(selected)
         self._refresh_segment_panel()
+        if checked:
+            existing_fit = app._app_state.get("fit_by_segment", {}).get(index)
+            if existing_fit is not None:
+                self._rerender_current()
+            else:
+                app.fitting.run_fit()
+        else:
+            self._rerender_current()
 
     def on_segment_color(self, index: int, _dummy: str = "") -> None:
         from PySide6.QtWidgets import QColorDialog
@@ -189,6 +249,7 @@ class FileController(BaseAppController):
             app = self.app
             app._app_state["segment_colors"][index] = color.name()
             self._refresh_segment_panel()
+            self._rerender_current()
 
     def on_select_all(self) -> None:
         app = self.app
@@ -201,9 +262,7 @@ class FileController(BaseAppController):
         app = self.app
         app._app_state["selected_segment_indices"] = []
         self._refresh_segment_panel()
-
-    def on_export_name_changed(self, name: str) -> None:
-        pass  # ExportController handles this via file_segment_panel.get_export_name()
+        app.chart.clear_figure()
 
     # ━━ Cache import ━━
 
@@ -227,6 +286,14 @@ class FileController(BaseAppController):
             paths = [Path(p) for p in payload.get("selected_paths", [])]
             app._app_state["selected_paths"] = [p for p in paths if p.exists()]
             app._app_state["file_ui_cache"] = payload.get("file_ui_cache", {})
+            app.file_segment_panel.set_file_paths(
+                app._app_state["selected_paths"],
+                processed=set(app._app_state.get("current_result_keys", {}).keys()),
+                names={
+                    str(p): (app._app_state.get("file_ui_cache", {}).get(str(p), {}).get("file_alias") or p.stem)
+                    for p in app._app_state["selected_paths"]
+                },
+            )
             # Restore result cache
             app._app_state["result_cache"] = {
                 c.cache_key_from_json(item["key"]): {
@@ -247,6 +314,7 @@ class FileController(BaseAppController):
 
     def on_palette_scheme_changed(self, scheme_name: str) -> None:
         self.app._app_state["active_palette_scheme"] = scheme_name
+        self._refresh_palette_controls()
 
     def on_palette_apply(self) -> None:
         app = self.app
@@ -259,6 +327,8 @@ class FileController(BaseAppController):
             if str(idx) in scheme:
                 colors[idx] = scheme[str(idx)]
         self._refresh_segment_panel()
+        self._sync_comparison_colors_for_current_file()
+        self._rerender_current()
 
     def on_palette_apply_comparison(self) -> None:
         app = self.app
@@ -266,30 +336,32 @@ class FileController(BaseAppController):
         scheme = app._app_state.get("palette_schemes", {}).get(scheme_name, {})
         for i, item in enumerate(app._app_state.get("comparison_items", [])):
             color_key = str(i % max(len(scheme), 1))
-            item.color = scheme.get(color_key, "#94a3b8")
+            item.color = scheme.get(color_key, COMPARISON_COLORS[i % len(COMPARISON_COLORS)])
         if hasattr(app.comparison, 'refresh_list'):
             app.comparison.refresh_list()
+        if app._app_state.get("comparison_mode"):
+            from gui.comparison import render_comparison
+            render_comparison(app)
 
     # ━━ Palette sidebar handlers ━━
 
     def on_palette_scheme_selected(self, scheme_name: str) -> None:
         app = self.app
         app._app_state["active_palette_scheme"] = scheme_name
-        app._update_palette_workspace()
+        self._refresh_palette_controls()
 
     def on_palette_color_changed(self, index: int, new_hex: str) -> None:
         app = self.app
         scheme_name = app._app_state.get("active_palette_scheme", "默认方案")
         schemes = app._app_state.setdefault("palette_schemes", {})
         schemes.setdefault(scheme_name, {})[str(index)] = new_hex
-        app._update_palette_workspace()
+        self._refresh_palette_controls()
 
     def on_palette_count_changed(self, count: int) -> None:
         app = self.app
         scheme_name = app._app_state.get("active_palette_scheme", "默认方案")
         app._app_state.setdefault("palette_scheme_slot_counts", {})[scheme_name] = count
-        self._refresh_palette_sidebar()
-        app._update_palette_workspace()
+        self._refresh_palette_controls()
 
     def on_palette_save_as_new(self, base_name: str = "") -> None:
         from PySide6.QtWidgets import QInputDialog
@@ -307,8 +379,7 @@ class FileController(BaseAppController):
         app._app_state.setdefault("palette_schemes", {})[name] = dict(current_colors)
         app._app_state.setdefault("palette_scheme_slot_counts", {})[name] = current_count
         app._app_state["active_palette_scheme"] = name
-        self._refresh_palette_sidebar()
-        app._update_palette_workspace()
+        self._refresh_palette_controls()
 
     def on_palette_delete(self, scheme_name: str) -> None:
         app = self.app
@@ -318,8 +389,7 @@ class FileController(BaseAppController):
         schemes.pop(scheme_name, None)
         app._app_state.get("palette_scheme_slot_counts", {}).pop(scheme_name, None)
         app._app_state["active_palette_scheme"] = next(iter(schemes.keys()))
-        self._refresh_palette_sidebar()
-        app._update_palette_workspace()
+        self._refresh_palette_controls()
 
     # ━━ Refresh helpers ━━
 
@@ -335,6 +405,51 @@ class FileController(BaseAppController):
             fit_by_segment=app._app_state.get("fit_by_segment", {}),
         )
 
+    def _refresh_palette_controls(self) -> None:
+        app = self.app
+        schemes = list(app._app_state.get("palette_schemes", {}).keys())
+        if not schemes:
+            app._app_state.setdefault("palette_schemes", {})["默认方案"] = {}
+            schemes = ["默认方案"]
+        active = app._app_state.get("active_palette_scheme") or schemes[0]
+        if active not in schemes:
+            active = schemes[0]
+            app._app_state["active_palette_scheme"] = active
+
+        if hasattr(app, "file_segment_panel"):
+            app.file_segment_panel.set_palette_schemes(schemes, active)
+        if hasattr(app, "comparison_panel"):
+            app.comparison_panel.set_palette_schemes(schemes, active)
+        if hasattr(app, "palette_sidebar"):
+            self._refresh_palette_sidebar()
+        if hasattr(app, "_update_palette_workspace"):
+            app._update_palette_workspace()
+
+    def _rerender_current(self) -> None:
+        app = self.app
+        selected = app._app_state.get("selected_segment_indices", [])
+        if not selected:
+            app.chart.clear_figure()
+            return
+        prepared = app._app_state.get("prepared")
+        if prepared is None:
+            return
+        from gui.rendering import draw
+        draw(app, prepared, app._app_state.get("fit"))
+
+    def _sync_comparison_colors_for_current_file(self) -> None:
+        app = self.app
+        path = app._app_state.get("tdms_path")
+        if path is None:
+            return
+        colors = app._app_state.get("segment_colors", {})
+        for item in app._app_state.get("comparison_items", []):
+            if item.file_path != path:
+                continue
+            item.color = colors.get(item.segment_index, item.color)
+        if hasattr(app, "comparison"):
+            app.comparison.refresh_list()
+
     def _refresh_palette_sidebar(self) -> None:
         app = self.app
         schemes = list(app._app_state.get("palette_schemes", {}).keys())
@@ -342,7 +457,7 @@ class FileController(BaseAppController):
         app.palette_sidebar.set_schemes(schemes, active)
         slot_count = app._app_state.get("palette_scheme_slot_counts", {}).get(active, 8)
         scheme_colors = app._app_state.get("palette_schemes", {}).get(active, {})
-        colors = [scheme_colors.get(str(i), "#94a3b8") for i in range(slot_count)]
+        colors = [scheme_colors.get(str(i), COMPARISON_COLORS[i % len(COMPARISON_COLORS)]) for i in range(slot_count)]
         names = [f"第{i+1}段" for i in range(slot_count)]
         app.palette_sidebar.set_colors(colors, names)
         app.palette_sidebar.count_combo.blockSignals(True)

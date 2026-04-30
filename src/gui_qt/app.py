@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QS
 
 from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE
 from gui_qt.theme import BG_WINDOW, BG_CARD, TEXT_PRIMARY, TEXT_SECONDARY
+from core.types import COMPARISON_COLORS
 
 
 class TafelAnalyzerApp(QMainWindow):
@@ -59,6 +60,8 @@ class TafelAnalyzerApp(QMainWindow):
             "fit_by_segment": {},
             "prepared_by_segment": {},
             "fit_error_by_segment": {},
+            "manual_mode": False,
+            "selector": None,
             "comparison_mode": False,
             "comparison_items": [],
             "palette_schemes": {"默认方案": {str(i): c for i, c in enumerate([
@@ -97,6 +100,22 @@ class TafelAnalyzerApp(QMainWindow):
         entry["potential_formula"] = pot_f
         entry["current_formula"] = cur_f
 
+    def eventFilter(self, obj, event):
+        if event.type() == event.Type.MouseButtonPress and hasattr(self, "toolbar") and hasattr(self, "chart"):
+            self.toolbar.clear_nav_mode()
+            self.chart.cancel_nav_modes()
+            if self._app_state.get("manual_mode"):
+                self.fitting.disable_manual_mode()
+        return super().eventFilter(obj, event)
+
+    def _on_chart_outside_click(self) -> None:
+        if hasattr(self, "toolbar"):
+            self.toolbar.clear_nav_mode()
+        if hasattr(self, "chart"):
+            self.chart.cancel_nav_modes()
+        if self._app_state.get("manual_mode"):
+            self.fitting.disable_manual_mode()
+
     def _on_params_changed(self, params: dict) -> None:
         path = self._app_state.get("tdms_path")
         if path is None:
@@ -124,6 +143,7 @@ class TafelAnalyzerApp(QMainWindow):
         # Side panel stack (320px)
         self.side_stack = QStackedWidget()
         self.side_stack.setFixedWidth(320)
+        self.side_stack.installEventFilter(self)
 
         from gui_qt.panels.file_segment import FileSegmentPanel
         from gui_qt.panels.comparison import ComparisonPanel
@@ -151,7 +171,6 @@ class TafelAnalyzerApp(QMainWindow):
 
         from gui_qt.central.toolbar import ToolBar
         from gui_qt.central.chart_widget import ChartArea
-        from gui_qt.central.chart_toolbar import ChartToolBar
         from gui_qt.central.summary_table import SummaryTable
 
         self.toolbar = ToolBar()
@@ -159,7 +178,6 @@ class TafelAnalyzerApp(QMainWindow):
         # Compatibility aliases for old-style gui.comparison rendering
         self.fig = self.chart.fig
         self.canvas = self.chart.canvas
-        self.chart_toolbar = ChartToolBar(self.chart)
 
         self.summary_table = SummaryTable()
         self.summary_table.setFixedHeight(140)
@@ -173,7 +191,6 @@ class TafelAnalyzerApp(QMainWindow):
 
         chart_layout.addWidget(self.toolbar)
         chart_layout.addWidget(self.chart, stretch=1)
-        chart_layout.addWidget(self.chart_toolbar)
         chart_layout.addWidget(self.summary_table)
         chart_layout.addWidget(self.status_bar)
 
@@ -233,7 +250,7 @@ class TafelAnalyzerApp(QMainWindow):
         names = []
         scheme_colors = schemes.get(scheme_name, {})
         for i in range(slot_count):
-            colors.append(scheme_colors.get(str(i), "#94a3b8"))
+            colors.append(scheme_colors.get(str(i), COMPARISON_COLORS[i % len(COMPARISON_COLORS)]))
             names.append(f"第{i+1}段")
         self.palette_workspace.set_scheme(scheme_name, colors, names)
 
@@ -267,6 +284,7 @@ class TafelAnalyzerApp(QMainWindow):
         p.files_selected.connect(self.files.on_files_loaded)
         p.file_activated.connect(self.files.on_file_selected)
         p.file_removed.connect(self.files.on_file_removed)
+        p.file_renamed.connect(self.files.on_file_renamed)
         p.cache_import_requested.connect(self.files.import_cache_dialog)
         p.segment_activated.connect(self.files.on_segment_activated)
         p.segment_toggled.connect(self.files.on_segment_toggled)
@@ -276,14 +294,23 @@ class TafelAnalyzerApp(QMainWindow):
         p.add_to_comparison.connect(self.comparison.add_from_current)
         p.palette_scheme_changed.connect(self.files.on_palette_scheme_changed)
         p.palette_apply_clicked.connect(self.files.on_palette_apply)
-        p.palette_manage_clicked.connect(lambda: self.activity_bar.set_active(PANEL_PALETTE))
+        p.palette_manage_clicked.connect(lambda: self._on_panel_clicked(PANEL_PALETTE))
         p.export_current.connect(self.export_mgr.export_current)
         p.export_batch.connect(self.export_mgr.run_batch)
-        p.export_name_changed.connect(self.files.on_export_name_changed)
 
         # Wire toolbar
         self.toolbar.fit_clicked.connect(self.fitting.run_fit)
-        self.toolbar.manual_clicked.connect(self.fitting.enable_manual_mode)
+        self.toolbar.manual_clicked.connect(lambda: (self.chart.cancel_nav_modes(), self.fitting.enable_manual_mode()))
+        self.toolbar.save_image_clicked.connect(self._save_chart_image)
+        self.toolbar.nav_home_clicked.connect(self.chart.nav_home)
+        self.toolbar.nav_back_clicked.connect(self.chart.nav_back)
+        self.toolbar.nav_forward_clicked.connect(self.chart.nav_forward)
+        self.toolbar.nav_zoom_clicked.connect(self.chart.nav_zoom)
+        self.toolbar.nav_pan_clicked.connect(self.chart.nav_pan)
+        self.toolbar.nav_cancel_clicked.connect(lambda: (self.chart.cancel_nav_modes(), self.fitting.disable_manual_mode() if self._app_state.get("manual_mode") else None))
+
+        # Wire chart canvas outside-axes clicks
+        self.chart.clicked_outside_axes.connect(self._on_chart_outside_click)
 
         # Wire comparison panel
         cp = self.comparison_panel
@@ -298,7 +325,7 @@ class TafelAnalyzerApp(QMainWindow):
         cp.export_clicked.connect(self.export_mgr.export_comparison)
         cp.palette_scheme_changed.connect(self.files.on_palette_scheme_changed)
         cp.palette_apply_clicked.connect(self.files.on_palette_apply_comparison)
-        cp.palette_manage_clicked.connect(lambda: self.activity_bar.set_active(PANEL_PALETTE))
+        cp.palette_manage_clicked.connect(lambda: self._on_panel_clicked(PANEL_PALETTE))
 
         # Wire palette sidebar
         ps = self.palette_sidebar
@@ -309,10 +336,6 @@ class TafelAnalyzerApp(QMainWindow):
         ps.save_as_new_clicked.connect(self.files.on_palette_save_as_new)
         ps.delete_scheme_clicked.connect(self.files.on_palette_delete)
 
-        # Wire chart toolbar
-        self.chart_toolbar.save_image_clicked.connect(self._save_chart_image)
-        self.chart_toolbar.manual_clicked.connect(self.fitting.enable_manual_mode)
-
         # Wire toolbar formula/param persistence
         self.toolbar.formulas_changed.connect(self._on_formulas_changed)
         self.toolbar.params_changed.connect(self._on_params_changed)
@@ -321,3 +344,6 @@ class TafelAnalyzerApp(QMainWindow):
         self.palette_workspace.swatch_clicked.connect(
             self.files.on_palette_color_changed
         )
+
+        # Initial palette controls refresh
+        self.files._refresh_palette_controls()

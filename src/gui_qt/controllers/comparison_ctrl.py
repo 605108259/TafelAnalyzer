@@ -38,15 +38,19 @@ class ComparisonController(BaseAppController):
             QMessageBox.warning(app, "提示", "该项目已在对比列表中")
             return
 
+        alias = (
+            app._app_state.get("file_ui_cache", {}).get(str(path), {}).get("file_alias")
+            or path.stem
+        )
         color = p.get_segment_color(app, active_idx, file_path=path)
         item = ComparisonItem(
             item_id=item_id,
             file_path=path,
-            file_name=path.name,
+            file_name=alias,
             segment_index=active_idx,
             prepared=prepared,
             fit=fit,
-            label=f"{path.stem}-第{active_idx + 1}段",
+            label=f"{alias}-第{active_idx + 1}段",
             color=color,
             visible=True,
         )
@@ -61,6 +65,10 @@ class ComparisonController(BaseAppController):
         prepared_by = app._app_state.get("prepared_by_segment", {})
         fit_by = app._app_state.get("fit_by_segment", {})
         items = app._app_state.setdefault("comparison_items", [])
+        alias = (
+            app._app_state.get("file_ui_cache", {}).get(str(path), {}).get("file_alias")
+            or path.stem
+        )
 
         for seg_idx in prepared_by:
             item_id = comp.comparison_item_id(path, seg_idx)
@@ -70,11 +78,11 @@ class ComparisonController(BaseAppController):
             items.append(ComparisonItem(
                 item_id=item_id,
                 file_path=path,
-                file_name=path.name,
+                file_name=alias,
                 segment_index=seg_idx,
                 prepared=prepared_by[seg_idx],
                 fit=fit_by.get(seg_idx),
-                label=f"{path.stem}-第{seg_idx + 1}段",
+                label=f"{alias}-第{seg_idx + 1}段",
                 color=color,
                 visible=True,
             ))
