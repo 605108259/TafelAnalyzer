@@ -12,10 +12,10 @@ from core.formula import normalize_formula
 from core.fitting import build_segment_infos
 from core.types import POTENTIAL_PREFERRED_NAMES, CURRENT_PREFERRED_NAMES, COMPARISON_COLORS
 from core.utils import pick_channel_name
-from gui_qt.controllers.base import BaseAppController
+from ui.controllers.base import BaseAppController
 
 if TYPE_CHECKING:
-    from gui_qt.app import TafelAnalyzerApp
+    from ui.app import TafelAnalyzerApp
 
 
 class FileLoadWorker(QThread):
@@ -267,9 +267,9 @@ class FileController(BaseAppController):
     # ━━ Cache import ━━
 
     def import_cache_dialog(self) -> None:
-        from gui.serialization import fit_from_dict, prepared_from_dict
+        from core.serialization import fit_from_dict, prepared_from_dict
         from core.types import ComparisonItem
-        from gui import cache as c
+        from core import cache as c
 
         app = self.app
         first_path = app._app_state.get("selected_paths", [None])[0]
@@ -340,7 +340,7 @@ class FileController(BaseAppController):
         if hasattr(app.comparison, 'refresh_list'):
             app.comparison.refresh_list()
         if app._app_state.get("comparison_mode"):
-            from gui.comparison import render_comparison
+            from core.comparison import render_comparison
             render_comparison(app)
 
     # ━━ Palette sidebar handlers ━━
@@ -430,7 +430,7 @@ class FileController(BaseAppController):
         prepared = app._app_state.get("prepared")
         if prepared is None:
             return
-        from gui.rendering import draw
+        from core.rendering import draw
         draw(app, prepared, app._app_state.get("fit"))
 
     def _sync_comparison_colors_for_current_file(self) -> None:

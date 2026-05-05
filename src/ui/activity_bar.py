@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton
 from PySide6.QtCore import Signal, Qt
 
-from gui_qt.theme import ACCENT, ACCENT_HOVER, BG_CARD, TEXT_SECONDARY
+from ui.theme import ACCENT, ACCENT_HOVER, BG_CARD, TEXT_SECONDARY
 
 
 PANEL_FILES = 0

@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QMessageBox
 
 from core.types import ComparisonItem, COMPARISON_COLORS
-from gui_qt.controllers.base import BaseAppController
-from gui import comparison as comp
+from ui.controllers.base import BaseAppController
+from core import comparison as comp
 
 if TYPE_CHECKING:
-    from gui_qt.app import TafelAnalyzerApp
+    from ui.app import TafelAnalyzerApp
 
 
 class ComparisonController(BaseAppController):
@@ -184,5 +184,5 @@ class ComparisonController(BaseAppController):
 
     def _rerender(self) -> None:
         if self.app._app_state.get("comparison_mode"):
-            from gui.comparison import render_comparison
+            from core.comparison import render_comparison
             render_comparison(self.app)

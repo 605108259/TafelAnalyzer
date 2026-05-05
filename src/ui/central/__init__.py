@@ -1,1 +1,1 @@
-# Placeholder: central widget implementations for gui_qt
+# Placeholder: central widget implementations for ui

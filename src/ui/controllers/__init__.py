@@ -1,1 +1,1 @@
-# Placeholder: controller implementations for gui_qt
+# Placeholder: controller implementations for ui

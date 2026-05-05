@@ -3,10 +3,10 @@ from __future__ import annotations
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton
 from PySide6.QtCore import Signal, Qt
 
-from gui_qt.theme import (
+from ui.theme import (
     BG_CARD, BORDER, TEXT_SECONDARY, BG_HOVER,
 )
-from gui_qt.central.chart_widget import ChartArea
+from ui.central.chart_widget import ChartArea
 
 
 class ChartToolBar(QWidget):

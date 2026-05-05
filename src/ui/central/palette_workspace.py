@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QGridLayout, QScrollArea, QPushButton, QColorDialog
 from PySide6.QtCore import Signal, Qt
 
-from gui_qt.theme import BG_CARD, TEXT_SECONDARY, TEXT_PRIMARY
+from ui.theme import BG_CARD, TEXT_SECONDARY, TEXT_PRIMARY
 
 
 class ClickableSwatch(QPushButton):

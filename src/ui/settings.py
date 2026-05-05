@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from core.types import COMPARISON_COLORS
 
 if TYPE_CHECKING:
-    from gui_qt.app import TafelAnalyzerApp
+    from ui.app import TafelAnalyzerApp
 
 
 # ── Settings path ────────────────────────────────────────────────────

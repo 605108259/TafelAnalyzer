@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from gui_qt.controllers.base import BaseAppController
+from ui.controllers.base import BaseAppController
 
 if TYPE_CHECKING:
-    from gui_qt.app import TafelAnalyzerApp
+    from ui.app import TafelAnalyzerApp
 
 
 class BatchExportWorker(QThread):
@@ -161,7 +161,7 @@ class ExportController(BaseAppController):
         if not file_path:
             return
 
-        from gui.comparison import render_comparison
+        from core.comparison import render_comparison
         if app._app_state.get("comparison_mode"):
             render_comparison(app)
         app.chart.fig.savefig(file_path, dpi=150, bbox_inches="tight")

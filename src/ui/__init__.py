@@ -1,3 +1,3 @@
-from gui_qt.app import TafelAnalyzerApp
+from ui.app import TafelAnalyzerApp
 
 __all__ = ["TafelAnalyzerApp"]

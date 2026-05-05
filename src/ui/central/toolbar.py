@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Qt
 
-from gui_qt.theme import (
+from ui.theme import (
     TOOLBAR_STYLE, TOOLBAR_LABEL, INPUT_STYLE, ACCENT_BUTTON_STYLE,
     BG_CARD, BORDER, ACCENT, ACCENT_HOVER, SUCCESS, SUCCESS_HOVER,
     WARNING, WARNING_HOVER, ICON_BUTTON_STYLE, TEXT_PRIMARY,
@@ -35,7 +35,7 @@ class ToolBar(QWidget):
         self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
         self.setStyleSheet(TOOLBAR_STYLE)
 
-        from gui_qt.icons import line_icon
+        from ui.icons import line_icon
 
         self._tool_buttons: dict[str, QToolButton] = {}
         self._action_buttons: dict[str, QToolButton] = {}

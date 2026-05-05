@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Qt
 
-from gui_qt.theme import (
+from ui.theme import (
     PANEL_STYLE, BUTTON_STYLE, ACCENT_BUTTON_STYLE, SMALL_BUTTON_STYLE,
     DANGER_BUTTON_STYLE, TEXT_PRIMARY, TEXT_SECONDARY, ACCENT,
     BG_CARD, BG_HOVER,

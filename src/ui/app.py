@@ -5,8 +5,8 @@ from pathlib import Path
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel, QToolButton
 from PySide6.QtCore import Qt
 
-from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE
-from gui_qt.theme import BG_WINDOW, BG_CARD, TEXT_PRIMARY, TEXT_SECONDARY
+from ui.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE
+from ui.theme import BG_WINDOW, BG_CARD, TEXT_PRIMARY, TEXT_SECONDARY
 from core.types import COMPARISON_COLORS
 
 
@@ -81,7 +81,7 @@ class TafelAnalyzerApp(QMainWindow):
 
     def _load_settings(self) -> None:
         try:
-            from gui_qt.settings import load_app_settings
+            from ui.settings import load_app_settings
             load_app_settings(self)
         except Exception as exc:
             import logging
@@ -145,9 +145,9 @@ class TafelAnalyzerApp(QMainWindow):
         self.side_stack.setFixedWidth(320)
         self.side_stack.installEventFilter(self)
 
-        from gui_qt.panels.file_segment import FileSegmentPanel
-        from gui_qt.panels.comparison import ComparisonPanel
-        from gui_qt.panels.palette import PaletteSidebar
+        from ui.panels.file_segment import FileSegmentPanel
+        from ui.panels.comparison import ComparisonPanel
+        from ui.panels.palette import PaletteSidebar
 
         self.file_segment_panel = FileSegmentPanel()
         self.side_stack.addWidget(self.file_segment_panel)  # index 0 = PANEL_FILES
@@ -169,9 +169,9 @@ class TafelAnalyzerApp(QMainWindow):
         chart_layout.setContentsMargins(0, 0, 0, 0)
         chart_layout.setSpacing(0)
 
-        from gui_qt.central.toolbar import ToolBar
-        from gui_qt.central.chart_widget import ChartArea
-        from gui_qt.central.summary_table import SummaryTable
+        from ui.central.toolbar import ToolBar
+        from ui.central.chart_widget import ChartArea
+        from ui.central.summary_table import SummaryTable
 
         self.toolbar = ToolBar()
         self.chart = ChartArea()
@@ -180,8 +180,8 @@ class TafelAnalyzerApp(QMainWindow):
         self.canvas = self.chart.canvas
 
         # Minimal nav bar for comparison mode (zoom/pan/save only)
-        from gui_qt.theme import BG_HOVER, TEXT_SECONDARY, BORDER, ICON_BUTTON_STYLE
-        from gui_qt.icons import line_icon
+        from ui.theme import BG_HOVER, TEXT_SECONDARY, BORDER, ICON_BUTTON_STYLE
+        from ui.icons import line_icon
         self._comp_nav = QWidget()
         self._comp_nav.setFixedHeight(36)
         self._comp_nav.setAttribute(Qt.WA_AlwaysShowToolTips, True)
@@ -231,7 +231,7 @@ class TafelAnalyzerApp(QMainWindow):
         self.right_stack.addWidget(chart_ws)  # index 0
 
         # Palette workspace
-        from gui_qt.central.palette_workspace import PaletteWorkspace
+        from ui.central.palette_workspace import PaletteWorkspace
         self.palette_workspace = PaletteWorkspace()
         self.right_stack.addWidget(self.palette_workspace)  # index 1
 
@@ -311,10 +311,10 @@ class TafelAnalyzerApp(QMainWindow):
             self.summary_table.hide()
 
     def _init_controllers(self) -> None:
-        from gui_qt.controllers.file_ctrl import FileController
-        from gui_qt.controllers.fitting_ctrl import FittingController
-        from gui_qt.controllers.comparison_ctrl import ComparisonController
-        from gui_qt.controllers.export_ctrl import ExportController
+        from ui.controllers.file_ctrl import FileController
+        from ui.controllers.fitting_ctrl import FittingController
+        from ui.controllers.comparison_ctrl import ComparisonController
+        from ui.controllers.export_ctrl import ExportController
 
         self.files = FileController(self)
         self.fitting = FittingController(self)

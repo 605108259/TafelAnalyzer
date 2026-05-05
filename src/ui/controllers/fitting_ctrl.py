@@ -7,10 +7,10 @@ from PySide6.QtCore import QThread, Signal, Qt
 from core.fitting import prepare_series, auto_tafel_fit, manual_tafel_fit
 from core.types import PreparedSeries, TafelFit
 from core.utils import parse_range_text, priority_label_to_key
-from gui_qt.controllers.base import BaseAppController
+from ui.controllers.base import BaseAppController
 
 if TYPE_CHECKING:
-    from gui_qt.app import TafelAnalyzerApp
+    from ui.app import TafelAnalyzerApp
 
 
 class FitWorker(QThread):
@@ -225,7 +225,7 @@ class FittingController(BaseAppController):
         )
 
         # Render chart
-        from gui.rendering import draw
+        from core.rendering import draw
 
         if active_prepared is not None:
             draw(app, active_prepared, fit_map.get(active_prepared.segment.index))
@@ -260,7 +260,7 @@ class FittingController(BaseAppController):
         app._app_state["manual_mode"] = True
         app.status_bar.setText("已进入手动框选模式，在右侧 Tafel 图上框选拟合区域")
         if app._app_state.get("prepared") is not None:
-            from gui.rendering import refresh_selector
+            from core.rendering import refresh_selector
             refresh_selector(app)
         from PySide6.QtGui import QCursor
         app.canvas.setCursor(QCursor(Qt.CrossCursor))
@@ -270,7 +270,7 @@ class FittingController(BaseAppController):
         app._app_state["manual_mode"] = False
         from PySide6.QtGui import QCursor
         app.canvas.setCursor(QCursor(Qt.ArrowCursor))
-        from gui.rendering import refresh_selector
+        from core.rendering import refresh_selector
         refresh_selector(app)
         if hasattr(app, "toolbar"):
             app.toolbar.clear_nav_mode()
@@ -284,7 +284,7 @@ class FittingController(BaseAppController):
         if any(v is None for v in coords):
             return
         try:
-            from gui.rendering import capture_axes_limits, draw, refresh_selector
+            from core.rendering import capture_axes_limits, draw, refresh_selector
 
             limits = capture_axes_limits(app)
             params = app.toolbar.get_params()
@@ -326,7 +326,7 @@ class FittingController(BaseAppController):
         except Exception as exc:
             app.status_bar.setText(f"手动拟合失败: {exc}")
             # Keep manual mode active so user can try again
-            from gui.rendering import refresh_selector as rs
+            from core.rendering import refresh_selector as rs
             rs(app)
 
     def _on_fit_error(self, msg: str) -> None:

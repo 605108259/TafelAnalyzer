@@ -9,13 +9,13 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Qt, QEvent
 
-from gui_qt.theme import (
+from ui.theme import (
     PANEL_STYLE, SMALL_BUTTON_STYLE, DANGER_BUTTON_STYLE,
     ACCENT_BUTTON_STYLE, LIST_STYLE, SEGMENT_ITEM_STYLE,
     TEXT_PRIMARY, TEXT_SECONDARY, SUCCESS, ACCENT, BG_HOVER, BG_SELECTED,
     ICON_BUTTON_STYLE, CheckmarkBox,
 )
-from gui_qt.icons import line_icon
+from ui.icons import line_icon
 from core.types import COMPARISON_COLORS as _DEFAULT_COLORS
 
 

@@ -9,7 +9,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolb
 from PySide6.QtWidgets import QWidget, QVBoxLayout
 from PySide6.QtCore import Qt, Signal
 
-from gui_qt.theme import BG_CARD, BORDER
+from ui.theme import BG_CARD, BORDER
 
 
 class ChartArea(QWidget):

@@ -7,12 +7,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Signal, Qt, QEvent
 
-from gui_qt.theme import (
+from ui.theme import (
     BUTTON_STYLE, PANEL_STYLE, TEXT_PRIMARY, TEXT_SECONDARY, LIST_STYLE,
     ACCENT, ACCENT_BUTTON_STYLE, DANGER, SMALL_BUTTON_STYLE, INPUT_STYLE,
     BG_HOVER, BG_CARD, CheckmarkBox, ICON_BUTTON_STYLE,
 )
-from gui_qt.icons import line_icon
+from ui.icons import line_icon
 
 
 class ComparisonItemWidget(QWidget):

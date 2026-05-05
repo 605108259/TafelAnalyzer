@@ -1,1 +1,1 @@
-# Placeholder: panel widget implementations for gui_qt
+# Placeholder: panel widget implementations for ui
