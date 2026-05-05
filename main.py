@@ -8,7 +8,7 @@ if _src not in sys.path:
     sys.path.insert(0, _src)
 
 from PySide6.QtWidgets import QApplication
-from gui_qt.app import TafelAnalyzerApp
+from ui.app import TafelAnalyzerApp
 
 qapp = QApplication(sys.argv)
 window = TafelAnalyzerApp()
