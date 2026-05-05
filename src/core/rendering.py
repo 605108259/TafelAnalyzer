@@ -11,18 +11,7 @@ from matplotlib.widgets import RectangleSelector
 from core.types import PreparedSeries, TafelFit
 
 if TYPE_CHECKING:
-    from gui.app import TafelAnalyzerApp
-
-
-def clear_toolbar_mode(app: TafelAnalyzerApp) -> None:
-    mode_text = str(getattr(app.toolbar, "mode", "")).lower()
-    if "zoom" in mode_text:
-        app.toolbar.zoom()
-    elif "pan" in mode_text:
-        app.toolbar.pan()
-    canvas_widget = getattr(app.canvas, "get_tk_widget", None)
-    if callable(canvas_widget):
-        canvas_widget().focus_set()
+    from ui.app import TafelAnalyzerApp
 
 
 def reset_origin_view(app: TafelAnalyzerApp) -> None:
@@ -72,7 +61,7 @@ def render_figure(
     fit_error_by_segment: dict[int, str] | None = None,
 ):
     from core.types import COMPARISON_COLORS
-    from gui.theme import MPL_RC, TEXT_PRIMARY
+    from core.theme import MPL_RC, TEXT_PRIMARY
 
     target_fig.clear()
     if fit_error_by_segment is None:
@@ -397,7 +386,7 @@ def draw(
 
 
 def draw_placeholder(app: TafelAnalyzerApp) -> None:
-    from gui.theme import MPL_RC, TEXT_SECONDARY
+    from core.theme import MPL_RC, TEXT_SECONDARY
 
     app.fig.clear()
     with matplotlib.rc_context(MPL_RC):

@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core.types import ComparisonItem
-from gui.serialization import fit_to_dict, prepared_to_dict
+from core.serialization import fit_to_dict, prepared_to_dict
 
 if TYPE_CHECKING:
-    from gui.app import TafelAnalyzerApp
+    from ui.app import TafelAnalyzerApp
 
 
 def make_result_cache_key(
@@ -64,7 +64,7 @@ def cache_key_from_json(cache_key: list) -> tuple:
 
 
 def build_cache_payload(app: TafelAnalyzerApp) -> dict:
-    from gui.rendering import capture_axes_limits, capture_plot_view_state
+    from core.rendering import capture_axes_limits, capture_plot_view_state
 
     current_path = app._app_state.get("tdms_path")
     return {

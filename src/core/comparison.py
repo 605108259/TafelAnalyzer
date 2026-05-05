@@ -9,7 +9,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 if TYPE_CHECKING:
-    from gui.app import TafelAnalyzerApp
+    from ui.app import TafelAnalyzerApp
 
 
 def comparison_item_id(file_path: Path, segment_index: int) -> str:
@@ -17,7 +17,7 @@ def comparison_item_id(file_path: Path, segment_index: int) -> str:
 
 
 def render_comparison_empty(app: TafelAnalyzerApp) -> None:
-    from gui.theme import MPL_RC, TEXT_SECONDARY
+    from core.theme import MPL_RC, TEXT_SECONDARY
 
     app.fig.clear()
     with matplotlib.rc_context(MPL_RC):
@@ -42,8 +42,8 @@ def render_comparison(
     app: TafelAnalyzerApp,
     preserve_view_state: dict | list | None = None,
 ) -> None:
-    from gui.theme import MPL_RC, TEXT_PRIMARY
-    from gui.rendering import (
+    from core.theme import MPL_RC, TEXT_PRIMARY
+    from core.rendering import (
         apply_plot_view_state,
         capture_plot_view_state,
         enable_draggable_legend,
