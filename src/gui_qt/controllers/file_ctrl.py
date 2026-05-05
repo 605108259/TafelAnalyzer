@@ -427,10 +427,6 @@ class FileController(BaseAppController):
 
     def _rerender_current(self) -> None:
         app = self.app
-        selected = app._app_state.get("selected_segment_indices", [])
-        if not selected:
-            app.chart.clear_figure()
-            return
         prepared = app._app_state.get("prepared")
         if prepared is None:
             return

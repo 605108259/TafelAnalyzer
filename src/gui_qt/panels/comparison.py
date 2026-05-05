@@ -2,23 +2,26 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
-    QListWidgetItem, QLabel, QLineEdit, QTextBrowser, QColorDialog, QCheckBox, QComboBox,
+    QListWidgetItem, QLabel, QLineEdit, QTextBrowser, QColorDialog, QComboBox,
+    QToolButton,
 )
 from PySide6.QtCore import Signal, Qt, QEvent
 
 from gui_qt.theme import (
     BUTTON_STYLE, PANEL_STYLE, TEXT_PRIMARY, TEXT_SECONDARY, LIST_STYLE,
     ACCENT, ACCENT_BUTTON_STYLE, DANGER, SMALL_BUTTON_STYLE, INPUT_STYLE,
-    BG_HOVER, BG_CARD,
+    BG_HOVER, BG_CARD, CheckmarkBox, ICON_BUTTON_STYLE,
 )
+from gui_qt.icons import line_icon
 
 
 class ComparisonItemWidget(QWidget):
-    """Single row: ☑ visibility | name (dbl-click edit) | segment label | color swatch."""
+    """Single row: ☑ visibility | name (dbl-click edit) | segment label | color swatch | × remove."""
 
     visibility_toggled = Signal(str, bool)   # item_id, visible
     color_clicked = Signal(str)              # item_id
     rename_finished = Signal(str, str)       # item_id, new_name
+    remove_clicked = Signal(str)             # item_id
 
     def __init__(self, item_id: str, display_name: str,
                  segment_label: str, color: str, visible: bool):
@@ -28,23 +31,24 @@ class ComparisonItemWidget(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
+        layout.setAlignment(Qt.AlignVCenter)
 
         # Checkbox
-        self.cb = QCheckBox()
-        self.cb.setChecked(visible)
+        self.cb = CheckmarkBox(visible)
         self.cb.stateChanged.connect(
-            lambda state: self.visibility_toggled.emit(item_id, bool(state))
+            lambda checked: self.visibility_toggled.emit(item_id, checked)
         )
         layout.addWidget(self.cb)
 
         # Editable name
         self.name_edit = QLineEdit(display_name)
         self.name_edit.setStyleSheet(
-            f"QLineEdit {{ border: none; background: transparent; "
+            f"QLineEdit {{ border: 1px solid transparent; border-radius: 4px; "
+            f"background: transparent; padding: 2px 4px; "
             f"color: {TEXT_PRIMARY}; font-size: 12px; }}"
-            f"QLineEdit:focus {{ border: 1px solid {ACCENT}; border-radius: 4px; "
-            f"background: white; padding: 2px 4px; }}"
+            f"QLineEdit:focus {{ border: 1px solid {ACCENT}; "
+            f"background: white; }}"
         )
         self.name_edit.setReadOnly(True)
         self.name_edit.installEventFilter(self)
@@ -66,6 +70,20 @@ class ComparisonItemWidget(QWidget):
         self.color_btn.setCursor(Qt.PointingHandCursor)
         self.color_btn.clicked.connect(lambda: self.color_clicked.emit(item_id))
         layout.addWidget(self.color_btn)
+
+        # Remove button
+        rm_btn = QToolButton()
+        rm_btn.setIcon(line_icon("x", color=TEXT_SECONDARY, size=14))
+        rm_btn.setToolTip("移除")
+        rm_btn.setCursor(Qt.PointingHandCursor)
+        rm_btn.setStyleSheet(ICON_BUTTON_STYLE)
+        rm_btn.clicked.connect(lambda: self.remove_clicked.emit(item_id))
+        layout.addWidget(rm_btn)
+
+    def sizeHint(self):
+        base = super().sizeHint()
+        base.setHeight(max(base.height(), 28))
+        return base
 
     def _on_rename(self):
         new_name = self.name_edit.text().strip()
@@ -93,14 +111,13 @@ class ComparisonPanel(QWidget):
     item_visibility_changed = Signal(str, bool)
     item_color_changed = Signal(str, str)
     item_renamed = Signal(str, str)
+    item_remove_clicked = Signal(str)
+    item_clicked = Signal(int)
 
     # Action signals
-    add_all_clicked = Signal()
     clear_all_clicked = Signal()
-    delete_selected_clicked = Signal()
     move_up_clicked = Signal()
     move_down_clicked = Signal()
-    export_clicked = Signal()
 
     # Palette signals
     palette_scheme_changed = Signal(str)
@@ -110,29 +127,31 @@ class ComparisonPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("SidePanel")
+        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
         self.setStyleSheet(PANEL_STYLE)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(4)
 
-        # Header with all action buttons
+        # Header with action buttons
         header = QHBoxLayout()
-        header.addWidget(QLabel("📊 对比"))
+        title_lbl = QLabel("对比")
+        title_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px; font-weight: bold;")
+        header.addWidget(title_lbl)
         header.addStretch()
 
-        for text, signal in [
-            ("📥 添加", self.add_all_clicked),
-            ("🗑 删除", self.delete_selected_clicked),
-            ("↑", self.move_up_clicked),
-            ("↓", self.move_down_clicked),
-            ("🗑 清空", self.clear_all_clicked),
-            ("💾 导出", self.export_clicked),
+        for name, tip, sig in [
+            ("arrow-up", "上移", self.move_up_clicked),
+            ("arrow-down", "下移", self.move_down_clicked),
+            ("trash", "清空", self.clear_all_clicked),
         ]:
-            btn = QPushButton(text)
-            btn.setStyleSheet(SMALL_BUTTON_STYLE)
+            btn = QToolButton()
+            btn.setIcon(line_icon(name, color=TEXT_PRIMARY, size=16))
+            btn.setToolTip(tip)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(signal.emit)
+            btn.setStyleSheet(ICON_BUTTON_STYLE)
+            btn.clicked.connect(sig.emit)
             header.addWidget(btn)
 
         layout.addLayout(header)
@@ -164,6 +183,7 @@ class ComparisonPanel(QWidget):
         # Item list
         self.item_list = QListWidget()
         self.item_list.setStyleSheet(LIST_STYLE)
+        self.item_list.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self.item_list, stretch=1)
 
         # Result text
@@ -186,6 +206,7 @@ class ComparisonPanel(QWidget):
             widget.visibility_toggled.connect(self.item_visibility_changed.emit)
             widget.color_clicked.connect(self._on_color)
             widget.rename_finished.connect(self.item_renamed.emit)
+            widget.remove_clicked.connect(self.item_remove_clicked.emit)
 
             item = QListWidgetItem()
             item.setSizeHint(widget.sizeHint())
@@ -196,6 +217,10 @@ class ComparisonPanel(QWidget):
         color = QColorDialog.getColor()
         if color.isValid():
             self.item_color_changed.emit(item_id, color.name())
+
+    def _on_item_clicked(self, item: QListWidgetItem) -> None:
+        row = self.item_list.row(item)
+        self.item_clicked.emit(row)
 
     def set_result_text(self, text: str) -> None:
         self.result_text.setPlainText(text)

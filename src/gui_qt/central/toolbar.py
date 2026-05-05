@@ -32,6 +32,7 @@ class ToolBar(QWidget):
         super().__init__(parent)
         self.setObjectName("ToolBar")
         self.setFixedHeight(68)
+        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
         self.setStyleSheet(TOOLBAR_STYLE)
 
         from gui_qt.icons import line_icon

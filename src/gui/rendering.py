@@ -20,7 +20,9 @@ def clear_toolbar_mode(app: TafelAnalyzerApp) -> None:
         app.toolbar.zoom()
     elif "pan" in mode_text:
         app.toolbar.pan()
-    app.canvas.get_tk_widget().focus_set()
+    canvas_widget = getattr(app.canvas, "get_tk_widget", None)
+    if callable(canvas_widget):
+        canvas_widget().focus_set()
 
 
 def reset_origin_view(app: TafelAnalyzerApp) -> None:
@@ -75,6 +77,16 @@ def render_figure(
     target_fig.clear()
     if fit_error_by_segment is None:
         fit_error_by_segment = {}
+    if not prepared_by_segment:
+        with matplotlib.rc_context(MPL_RC):
+            gs = target_fig.add_gridspec(1, 2, wspace=0.28, left=0.07, right=0.97, top=0.92, bottom=0.12)
+            ax0 = target_fig.add_subplot(gs[0])
+            ax1 = target_fig.add_subplot(gs[1])
+            ax0.grid(True)
+            ax1.grid(True)
+            ax0.set_title("无数据", fontsize=12, color=TEXT_PRIMARY, pad=8)
+            ax1.set_title("Tafel", fontsize=12, color=TEXT_PRIMARY, pad=8)
+        return ax0, ax1
     ref_prepared = prepared_by_segment.get(active_index) or next(iter(prepared_by_segment.values()))
     with matplotlib.rc_context(MPL_RC):
         gs = target_fig.add_gridspec(1, 2, wspace=0.28, left=0.07, right=0.97, top=0.92, bottom=0.12)
@@ -413,8 +425,10 @@ def draw_placeholder(app: TafelAnalyzerApp) -> None:
 
 # Avoid circular import - palette functions needed by render_figure
 def p_get_segment_color(app, segment_index, file_path=None):
-    from gui.palette import get_segment_color
-    return get_segment_color(app, segment_index, file_path=file_path)
+    from core.types import COMPARISON_COLORS
+
+    color_map = app._app_state.get("segment_colors", {})
+    return color_map.get(int(segment_index), COMPARISON_COLORS[int(segment_index) % len(COMPARISON_COLORS)])
 
 
 def draw_placeholder_fig(fig, canvas, axes_list):

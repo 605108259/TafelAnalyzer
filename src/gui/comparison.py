@@ -60,23 +60,37 @@ def render_comparison(
         render_comparison_empty(app)
         return
 
+    highlight_row = app._app_state.get("comparison_highlight_row", -1)
+    all_items = app._app_state.get("comparison_items", [])
+    highlight_id = None
+    if 0 <= highlight_row < len(all_items):
+        highlight_id = all_items[highlight_row].item_id
+
     app.fig.clear()
     with matplotlib.rc_context(MPL_RC):
         gs = app.fig.add_gridspec(1, 2, wspace=0.28, left=0.07, right=0.97, top=0.92, bottom=0.12)
         ax0 = app.fig.add_subplot(gs[0])
         ax1 = app.fig.add_subplot(gs[1])
 
-        for item in visible_items:
+        # Draw non-highlighted items first, then highlighted on top
+        draw_order = [it for it in visible_items if it.item_id != highlight_id]
+        draw_order += [it for it in visible_items if it.item_id == highlight_id]
+
+        for item in draw_order:
             prepared = item.prepared
             fit = item.fit
             color = item.color
-            label = item.label
+            label = f"{item.file_name}-第{item.segment_index + 1}段"
+            is_highlighted = item.item_id == highlight_id
+            lw = 2.5 if is_highlighted else 1.4
+            ms = 5.0 if is_highlighted else 3.0
+            z = 5 if is_highlighted else 1
 
             ax0.plot(
                 prepared.e, prepared.j,
-                marker="o", linestyle="-", markersize=3.0,
-                linewidth=1.4, color=color, alpha=0.9,
-                label=label,
+                marker="o", linestyle="-", markersize=ms,
+                linewidth=lw, color=color, alpha=0.9,
+                label=label, zorder=z,
             )
             if fit is not None:
                 fit_indices = fit.source_indices[fit.selected_mask]
@@ -145,10 +159,11 @@ def build_comparison_export(
         ax1 = export_fig.add_subplot(gs[1])
         for item in items:
             p, f = item.prepared, item.fit
-            ax0.plot(p.e, p.j, marker="o", linestyle="-", markersize=3, linewidth=1.4, color=item.color, alpha=0.9, label=item.label)
+            item_label = f"{item.file_name}-第{item.segment_index + 1}段"
+            ax0.plot(p.e, p.j, marker="o", linestyle="-", markersize=3, linewidth=1.4, color=item.color, alpha=0.9, label=item_label)
             if f:
                 x_seg, y_seg, mask = f.x_log10_j, f.y_e, f.selected_mask
-                ax1.scatter(x_seg[mask], y_seg[mask], s=28, color=item.color, edgecolors="#111827", linewidths=0.5, label=f"{item.label} ({f.slope_mv_per_dec:.1f} mV/dec)", zorder=3)
+                ax1.scatter(x_seg[mask], y_seg[mask], s=28, color=item.color, edgecolors="#111827", linewidths=0.5, label=f"{item_label} ({f.slope_mv_per_dec:.1f} mV/dec)", zorder=3)
                 xs = x_seg[mask]
                 if xs.size >= 2:
                     margin = max((float(xs.max()) - float(xs.min())) * 0.08, 0.02)

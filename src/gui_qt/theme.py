@@ -98,27 +98,12 @@ LIST_STYLE = f"""
         outline: none;
     }}
     QListWidget::item {{
-        border-radius: 6px;
-        padding: 4px 8px;
         background: transparent;
+        padding: 0px;
     }}
-"""
-
-CHECKBOX_STYLE = f"""
-    QCheckBox {{
-        spacing: 0px;
-    }}
-    QCheckBox::indicator {{
-        width: 14px;
-        height: 14px;
-        border: 2px solid {BORDER};
-        border-radius: 2px;
-        background: {BG_CARD};
-    }}
-    QCheckBox::indicator:checked {{
-        background: {ACCENT};
-        border-color: {ACCENT};
-        image: url(data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='white' d='M5.5 11.5L2 8l1.5-1.5L5.5 8.5 11 3l1.5 1.5z'/></svg>);
+    QListWidget::item:selected {{
+        background: {BG_SELECTED};
+        border-radius: 4px;
     }}
 """
 
@@ -202,22 +187,6 @@ SEGMENT_ITEM_STYLE = f"""
     }}
 """
 
-CHECKBOX_STYLE = f"""
-    QCheckBox {{
-        spacing: 0px;
-    }}
-    QCheckBox::indicator {{
-        width: 16px;
-        height: 16px;
-        border: 2px solid {BORDER};
-        border-radius: 4px;
-        background: {BG_CARD};
-    }}
-    QCheckBox::indicator:checked {{
-        background: {ACCENT};
-        border-color: {ACCENT};
-    }}
-"""
 
 # ━━ Palette panel styles ━━
 
@@ -246,3 +215,68 @@ STATUS_BAR_STYLE = f"""
         background: {BG_CARD};
     }}
 """
+
+
+# ━━ Custom checkbox widget ━━
+
+from PySide6.QtWidgets import QAbstractButton
+from PySide6.QtCore import Signal, Qt
+from PySide6.QtGui import QPainter, QPen, QColor, QPainterPath
+
+
+class CheckmarkBox(QAbstractButton):
+    """Custom checkbox that paints a ✓ with QPainter (no QSS image needed)."""
+
+    stateChanged = Signal(bool)
+
+    def __init__(self, checked: bool = False, parent=None):
+        super().__init__(parent)
+        self._checked = checked
+        self.setFixedSize(18, 18)
+        self.setCursor(Qt.PointingHandCursor)
+        self.clicked.connect(self._toggle)
+
+    def _toggle(self):
+        self._checked = not self._checked
+        self.stateChanged.emit(self._checked)
+        self.update()
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, checked: bool):
+        self._checked = checked
+        self.update()
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSizeHint(self):
+        return self.minimumSize()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        x, y, w, h = 1, 1, self.width() - 2, self.height() - 2
+        if self._checked:
+            p.setBrush(QColor(ACCENT_HOVER))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(x, y, w, h, 3, 3)
+            # White checkmark — bold, slightly larger
+            pen = QPen(QColor("white"))
+            pen.setWidthF(2.2)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            p.setPen(pen)
+            path = QPainterPath()
+            path.moveTo(x + w * 0.20, y + h * 0.52)
+            path.lineTo(x + w * 0.42, y + h * 0.76)
+            path.lineTo(x + w * 0.80, y + h * 0.24)
+            p.drawPath(path)
+        else:
+            p.setBrush(QColor(BG_CARD))
+            pen = QPen(QColor(TEXT_DISABLED))
+            pen.setWidthF(1.5)
+            p.setPen(pen)
+            p.drawRoundedRect(x, y, w, h, 3, 3)
+        p.end()

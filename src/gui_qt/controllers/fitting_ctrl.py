@@ -6,7 +6,7 @@ from PySide6.QtCore import QThread, Signal, Qt
 
 from core.fitting import prepare_series, auto_tafel_fit, manual_tafel_fit
 from core.types import PreparedSeries, TafelFit
-from gui.widgets import parse_range_text, priority_label_to_key
+from core.utils import parse_range_text, priority_label_to_key
 from gui_qt.controllers.base import BaseAppController
 
 if TYPE_CHECKING:

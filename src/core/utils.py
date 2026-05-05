@@ -1,7 +1,9 @@
-"""工具函数：channel 解析、字体管理、范围规范化。"""
+"""工具函数：channel 解析、字体管理、范围规范化、段选择解析。"""
 from __future__ import annotations
 
+import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Iterable
 
 import numpy as np
@@ -61,3 +63,110 @@ def apply_matplotlib_cjk(matplotlib_module) -> str:
     matplotlib_module.rcParams["font.sans-serif"] = [font_name, "DejaVu Sans"]
     matplotlib_module.rcParams["axes.unicode_minus"] = False
     return font_name
+
+
+# ── Path & file helpers ──────────────────────────────────────────────
+
+
+def path_labels(paths: list[Path]) -> dict[str, Path]:
+    labels: dict[str, Path] = {}
+    name_counts: dict[str, int] = {}
+    for path in paths:
+        name_counts[path.name] = name_counts.get(path.name, 0) + 1
+    for path in paths:
+        label = path.name if name_counts[path.name] == 1 else f"{path.name} | {path.parent}"
+        labels[label] = path
+    return labels
+
+
+def output_stem(tdms_path: Path, segment_index: int, segment_count: int) -> str:
+    if segment_count <= 1:
+        return tdms_path.stem
+    return f"{tdms_path.stem}_seg{segment_index + 1}"
+
+
+def resolved_output_stem(tdms_path: Path, export_name: str) -> str:
+    return export_name.strip() or tdms_path.stem
+
+
+# ── Range text parsing ───────────────────────────────────────────────
+
+
+RANGE_TEXT_PATTERN = re.compile(
+    r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*-\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*$"
+)
+
+
+def parse_range_text(
+    text: str,
+    label: str,
+    *,
+    integer: bool = False,
+    minimum: float | None = None,
+    allow_empty: bool = False,
+) -> tuple[float, float] | tuple[int, int] | None:
+    raw = text.strip()
+    if not raw:
+        if allow_empty:
+            return None
+        raise ValueError(f"{label}不能为空")
+    match = RANGE_TEXT_PATTERN.fullmatch(raw)
+    if match is None:
+        raise ValueError(f'{label}格式应为"起点-终点"')
+    low = float(match.group(1))
+    high = float(match.group(2))
+    if low > high:
+        low, high = high, low
+    if minimum is not None and (low < minimum or high < minimum):
+        raise ValueError(f"{label}不能小于 {minimum}")
+    if integer:
+        if not low.is_integer() or not high.is_integer():
+            raise ValueError(f"{label}必须是整数范围")
+        return int(low), int(high)
+    return float(low), float(high)
+
+
+# ── Fit priority helpers ─────────────────────────────────────────────
+
+
+def priority_label_to_key(label: str) -> str:
+    return "slope" if label.strip() == "斜率更低优先" else "r2"
+
+
+def priority_key_to_label(key: str) -> str:
+    return "斜率更低优先" if key == "slope" else "R²优先"
+
+
+# ── Segment selection parsing ────────────────────────────────────────
+
+
+def parse_segment_selection(text: str, segment_count: int, active_index: int) -> list[int]:
+    raw = text.strip()
+    if not raw:
+        result: list[int] = []
+    elif raw.lower() == "all":
+        result = list(range(segment_count))
+    else:
+        unique: set[int] = set()
+        for chunk in raw.replace("，", ",").split(","):
+            part = chunk.strip()
+            if not part:
+                continue
+            if "-" in part:
+                left_text, right_text = part.split("-", 1)
+                left = int(left_text)
+                right = int(right_text)
+                start, end = sorted((left, right))
+                for item in range(start, end + 1):
+                    unique.add(item - 1)
+            else:
+                unique.add(int(part) - 1)
+        result = sorted(unique)
+    for index in result:
+        if index < 0 or index >= segment_count:
+            raise ValueError(f"分段选择超出范围，当前共 {segment_count} 段")
+    return result
+
+
+def segment_selection_text(indices: list[int]) -> str:
+    return ",".join(str(index + 1) for index in indices)

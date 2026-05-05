@@ -4,9 +4,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QMessageBox
 
-from core.types import ComparisonItem
+from core.types import ComparisonItem, COMPARISON_COLORS
 from gui_qt.controllers.base import BaseAppController
-from gui import palette as p
 from gui import comparison as comp
 
 if TYPE_CHECKING:
@@ -20,41 +19,49 @@ class ComparisonController(BaseAppController):
         super().__init__(app)
 
     def add_from_current(self) -> None:
+        """Add all checked segments from the current file to comparison."""
         app = self.app
         path = app._app_state.get("tdms_path")
         if not path:
             return
-        active_idx = app._app_state.get("active_segment_index", 0)
-        prepared = app._app_state.get("prepared")
-        fit = app._app_state.get("fit")
-        if prepared is None:
-            QMessageBox.warning(app, "提示", "请先运行拟合")
+        checked = set(app._app_state.get("selected_segment_indices", []))
+        prepared_by = app._app_state.get("prepared_by_segment", {})
+        fit_by = app._app_state.get("fit_by_segment", {})
+        if not checked:
+            QMessageBox.warning(app, "提示", "请先勾选要对比的分段")
             return
-
-        item_id = comp.comparison_item_id(path, active_idx)
-        existing = [it for it in app._app_state.get("comparison_items", [])
-                    if it.item_id == item_id]
-        if existing:
-            QMessageBox.warning(app, "提示", "该项目已在对比列表中")
-            return
-
         alias = (
             app._app_state.get("file_ui_cache", {}).get(str(path), {}).get("file_alias")
             or path.stem
         )
-        color = p.get_segment_color(app, active_idx, file_path=path)
-        item = ComparisonItem(
-            item_id=item_id,
-            file_path=path,
-            file_name=alias,
-            segment_index=active_idx,
-            prepared=prepared,
-            fit=fit,
-            label=f"{alias}-第{active_idx + 1}段",
-            color=color,
-            visible=True,
-        )
-        app._app_state.setdefault("comparison_items", []).append(item)
+        items = app._app_state.setdefault("comparison_items", [])
+        added = 0
+        for seg_idx in sorted(checked):
+            seg_prepared = prepared_by.get(seg_idx)
+            if seg_prepared is None:
+                continue
+            item_id = comp.comparison_item_id(path, seg_idx)
+            if any(it.item_id == item_id for it in items):
+                continue
+            color = app._app_state.get("segment_colors", {}).get(
+                int(seg_idx),
+                COMPARISON_COLORS[int(seg_idx) % len(COMPARISON_COLORS)],
+            )
+            items.append(ComparisonItem(
+                item_id=item_id,
+                file_path=path,
+                file_name=alias,
+                segment_index=seg_idx,
+                prepared=seg_prepared,
+                fit=fit_by.get(seg_idx),
+                label=f"{alias}-第{seg_idx + 1}段",
+                color=color,
+                visible=True,
+            ))
+            added += 1
+        if added == 0:
+            QMessageBox.warning(app, "提示", "勾选的分段已在对比列表中")
+            return
         self.refresh_list()
 
     def add_all_processed(self) -> None:
@@ -74,7 +81,10 @@ class ComparisonController(BaseAppController):
             item_id = comp.comparison_item_id(path, seg_idx)
             if any(it.item_id == item_id for it in items):
                 continue
-            color = p.get_segment_color(app, seg_idx, file_path=path)
+            color = app._app_state.get("segment_colors", {}).get(
+                int(seg_idx),
+                COMPARISON_COLORS[int(seg_idx) % len(COMPARISON_COLORS)],
+            )
             items.append(ComparisonItem(
                 item_id=item_id,
                 file_path=path,
@@ -95,12 +105,22 @@ class ComparisonController(BaseAppController):
             items.pop(current)
             self.refresh_list()
 
+    def remove_by_id(self, item_id: str) -> None:
+        items = self.app._app_state.get("comparison_items", [])
+        self.app._app_state["comparison_items"] = [it for it in items if it.item_id != item_id]
+        self.refresh_list()
+
+    def highlight_item(self, row: int) -> None:
+        self.app._app_state["comparison_highlight_row"] = row
+        self._rerender()
+
     def move_up(self) -> None:
         items = self.app._app_state.get("comparison_items", [])
         current = self.app.comparison_panel.item_list.currentRow()
         if current > 0:
             items[current], items[current - 1] = items[current - 1], items[current]
             self.refresh_list()
+            self.app.comparison_panel.item_list.setCurrentRow(current - 1)
 
     def move_down(self) -> None:
         items = self.app._app_state.get("comparison_items", [])
@@ -108,6 +128,7 @@ class ComparisonController(BaseAppController):
         if current < len(items) - 1:
             items[current], items[current + 1] = items[current + 1], items[current]
             self.refresh_list()
+            self.app.comparison_panel.item_list.setCurrentRow(current + 1)
 
     def clear_all(self) -> None:
         self.app._app_state["comparison_items"] = []
@@ -134,6 +155,11 @@ class ComparisonController(BaseAppController):
                 item.file_name = new_name
                 break
         self.refresh_list()
+        # Restore selection to the renamed item
+        for i, it in enumerate(self.app._app_state.get("comparison_items", [])):
+            if it.item_id == item_id:
+                self.app.comparison_panel.item_list.setCurrentRow(i)
+                break
 
     def refresh_list(self) -> None:
         app = self.app
@@ -153,18 +179,8 @@ class ComparisonController(BaseAppController):
         self._update_summary()
 
     def _update_summary(self) -> None:
-        items = self.app._app_state.get("comparison_items", [])
-        table_data = []
-        for item in items:
-            if item.fit:
-                table_data.append({
-                    "alias": item.file_name,
-                    "segment": item.segment_index + 1,
-                    "slope": item.fit.slope_mv_per_dec,
-                    "r2": item.fit.r2,
-                    "n_points": item.fit.selected_count,
-                })
-        self.app.summary_table.set_items(table_data)
+        # Summary table removed from comparison view; kept for export only.
+        pass
 
     def _rerender(self) -> None:
         if self.app._app_state.get("comparison_mode"):

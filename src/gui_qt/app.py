@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel
+from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel, QToolButton
+from PySide6.QtCore import Qt
 
 from gui_qt.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE
 from gui_qt.theme import BG_WINDOW, BG_CARD, TEXT_PRIMARY, TEXT_SECONDARY
@@ -80,13 +81,12 @@ class TafelAnalyzerApp(QMainWindow):
 
     def _load_settings(self) -> None:
         try:
-            from gui import settings as s
-            s.load_app_settings(self)
-        except (ImportError, AttributeError, KeyError) as exc:
-            # Expected in Qt mode — CTk widget attrs don't exist
+            from gui_qt.settings import load_app_settings
+            load_app_settings(self)
+        except Exception as exc:
             import logging
             logging.debug(
-                "Settings load skipped (Qt mode): %s: %s",
+                "Settings load failed: %s: %s",
                 type(exc).__name__, exc,
             )
 
@@ -179,6 +179,39 @@ class TafelAnalyzerApp(QMainWindow):
         self.fig = self.chart.fig
         self.canvas = self.chart.canvas
 
+        # Minimal nav bar for comparison mode (zoom/pan/save only)
+        from gui_qt.theme import BG_HOVER, TEXT_SECONDARY, BORDER, ICON_BUTTON_STYLE
+        from gui_qt.icons import line_icon
+        self._comp_nav = QWidget()
+        self._comp_nav.setFixedHeight(36)
+        self._comp_nav.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        self._comp_nav.setStyleSheet(f"background: {BG_CARD}; border-bottom: 1px solid {BORDER};")
+        self._comp_nav.hide()
+        _nav = QHBoxLayout(self._comp_nav)
+        _nav.setContentsMargins(8, 0, 8, 0)
+        _nav.setSpacing(4)
+        _nav_tb = self.chart._nav_toolbar
+        for name, tip, cb in [
+            ("home", "复位", _nav_tb.home), ("back", "后退", _nav_tb.back),
+            ("forward", "前进", _nav_tb.forward), ("zoom", "缩放", _nav_tb.zoom),
+            ("pan", "平移", _nav_tb.pan),
+        ]:
+            b = QToolButton()
+            b.setIcon(line_icon(name, color=TEXT_PRIMARY, size=16))
+            b.setToolTip(tip)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(ICON_BUTTON_STYLE)
+            b.clicked.connect(cb)
+            _nav.addWidget(b)
+        _save = QToolButton()
+        _save.setIcon(line_icon("save", color=TEXT_PRIMARY, size=16))
+        _save.setToolTip("保存图片")
+        _save.setCursor(Qt.PointingHandCursor)
+        _save.setStyleSheet(ICON_BUTTON_STYLE)
+        _save.clicked.connect(self._save_chart_image)
+        _nav.addWidget(_save)
+        _nav.addStretch()
+
         self.summary_table = SummaryTable()
         self.summary_table.setFixedHeight(140)
         self.summary_table.hide()  # shown only in comparison mode
@@ -190,6 +223,7 @@ class TafelAnalyzerApp(QMainWindow):
         self.status_bar.setFixedHeight(24)
 
         chart_layout.addWidget(self.toolbar)
+        chart_layout.addWidget(self._comp_nav)
         chart_layout.addWidget(self.chart, stretch=1)
         chart_layout.addWidget(self.summary_table)
         chart_layout.addWidget(self.status_bar)
@@ -218,11 +252,15 @@ class TafelAnalyzerApp(QMainWindow):
         if panel_id == PANEL_FILES:
             self.right_stack.setCurrentIndex(0)  # chart workspace
             self._app_state["comparison_mode"] = False
+            self.toolbar.show()
+            self._comp_nav.hide()
             self.summary_table.hide()
         elif panel_id == PANEL_COMPARISON:
             self.right_stack.setCurrentIndex(0)  # chart workspace
             self._app_state["comparison_mode"] = True
-            self.summary_table.show()
+            self.toolbar.hide()
+            self._comp_nav.show()
+            self.summary_table.hide()
         elif panel_id == PANEL_PALETTE:
             self.right_stack.setCurrentIndex(1)  # palette workspace
             self.summary_table.hide()
@@ -260,13 +298,17 @@ class TafelAnalyzerApp(QMainWindow):
             self.activity_bar.set_active(PANEL_FILES)
             self.side_stack.setCurrentIndex(PANEL_FILES)
             self.right_stack.setCurrentIndex(0)
+            self.toolbar.show()
+            self._comp_nav.hide()
             self.summary_table.hide()
         else:
             self._app_state["comparison_mode"] = True
             self.activity_bar.set_active(PANEL_COMPARISON)
             self.side_stack.setCurrentIndex(PANEL_COMPARISON)
             self.right_stack.setCurrentIndex(0)
-            self.summary_table.show()
+            self.toolbar.hide()
+            self._comp_nav.show()
+            self.summary_table.hide()
 
     def _init_controllers(self) -> None:
         from gui_qt.controllers.file_ctrl import FileController
@@ -317,12 +359,11 @@ class TafelAnalyzerApp(QMainWindow):
         cp.item_visibility_changed.connect(self.comparison.toggle_visibility)
         cp.item_color_changed.connect(self.comparison.update_color)
         cp.item_renamed.connect(self.comparison.rename)
-        cp.add_all_clicked.connect(self.comparison.add_all_processed)
         cp.clear_all_clicked.connect(self.comparison.clear_all)
-        cp.delete_selected_clicked.connect(self.comparison.delete_selected)
+        cp.item_remove_clicked.connect(self.comparison.remove_by_id)
+        cp.item_clicked.connect(self.comparison.highlight_item)
         cp.move_up_clicked.connect(self.comparison.move_up)
         cp.move_down_clicked.connect(self.comparison.move_down)
-        cp.export_clicked.connect(self.export_mgr.export_comparison)
         cp.palette_scheme_changed.connect(self.files.on_palette_scheme_changed)
         cp.palette_apply_clicked.connect(self.files.on_palette_apply_comparison)
         cp.palette_manage_clicked.connect(lambda: self._on_panel_clicked(PANEL_PALETTE))
