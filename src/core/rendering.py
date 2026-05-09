@@ -9,6 +9,24 @@ from matplotlib.figure import Figure
 from matplotlib.widgets import RectangleSelector
 
 from core.types import PreparedSeries, TafelFit
+from core.render_styles import (
+    LINEWIDTH_ACTIVE, LINEWIDTH_INACTIVE, LINEWIDTH_DEFAULT,
+    LINEWIDTH_FIT_ACTIVE, LINEWIDTH_FIT_INACTIVE, LINEWIDTH_FIT_DEFAULT,
+    ALPHA_ACTIVE, ALPHA_INACTIVE, ALPHA_DEFAULT,
+    ALPHA_SCATTER_SELECTED,
+    ALPHA_SCATTER_DESELECTED_ACTIVE, ALPHA_SCATTER_DESELECTED_INACTIVE, ALPHA_SCATTER_DESELECTED_DEFAULT,
+    ALPHA_SCATTER_NO_FIT_ACTIVE, ALPHA_SCATTER_NO_FIT_INACTIVE, ALPHA_SCATTER_NO_FIT_DEFAULT,
+    ALPHA_FIT_LINE_ACTIVE, ALPHA_FIT_LINE_INACTIVE, ALPHA_FIT_LINE_DEFAULT,
+    MARKERSIZE_ACTIVE, MARKERSIZE_INACTIVE, MARKERSIZE_DEFAULT,
+    SCATTER_RAW_FIT_ACTIVE, SCATTER_RAW_FIT_DEFAULT,
+    SCATTER_FIT_SELECTED_ACTIVE, SCATTER_FIT_SELECTED_DEFAULT, SCATTER_FIT_SELECTED_INACTIVE,
+    SCATTER_FIT_DESELECTED_ACTIVE, SCATTER_FIT_DESELECTED_DEFAULT, SCATTER_FIT_DESELECTED_INACTIVE,
+    SCATTER_NO_FIT_ACTIVE, SCATTER_NO_FIT_DEFAULT, SCATTER_NO_FIT_INACTIVE,
+    EDGEWIDTH_ACTIVE, EDGEWIDTH_INACTIVE,
+    GRIDSPEC_WSPACE, GRIDSPEC_LEFT, GRIDSPEC_RIGHT, GRIDSPEC_TOP, GRIDSPEC_BOTTOM,
+    FIT_LINE_MARGIN_FRAC, FIT_LINE_MARGIN_MIN, FIT_LINE_POINTS,
+    FONTSIZE_TITLE, FONTSIZE_LABEL, FONTSIZE_LEGEND, FONTSIZE_PLACEHOLDER,
+)
 
 if TYPE_CHECKING:
     from ui.app import TafelAnalyzerApp
@@ -32,6 +50,24 @@ def reset_origin_view(app: TafelAnalyzerApp) -> None:
     app.canvas.draw_idle()
 
 
+def persist_current_plot_view_state(app: TafelAnalyzerApp) -> None:
+    mode = app._app_state.get("active_chart_mode")
+    if mode not in {"single", "comparison"} or len(app.fig.axes) < 2:
+        return
+    key = "single_plot_view_state" if mode == "single" else "compare_plot_view_state"
+    app._app_state[key] = capture_plot_view_state(app, app.fig)
+
+
+def current_or_saved_plot_view_state(
+    app: TafelAnalyzerApp,
+    mode: str,
+) -> dict | list | None:
+    key = "single_plot_view_state" if mode == "single" else "compare_plot_view_state"
+    if app._app_state.get("active_chart_mode") == mode and len(app.fig.axes) >= 2:
+        return capture_plot_view_state(app, app.fig)
+    return app._app_state.get(key)
+
+
 def compute_tafel_points(prepared: PreparedSeries) -> tuple[np.ndarray, np.ndarray]:
     j = np.asarray(prepared.j, dtype=float).reshape(-1)
     y = np.asarray(prepared.eta, dtype=float).reshape(-1)
@@ -50,6 +86,135 @@ def compute_tafel_points(prepared: PreparedSeries) -> tuple[np.ndarray, np.ndarr
 MULTI_SEGMENT_TITLE = "多段电化学数据"
 
 
+def _compute_segment_styles(
+    has_active: bool,
+    is_active: bool,
+) -> dict:
+    """Compute visual style constants for a segment based on active state."""
+    return {
+        "color": None,  # filled per-segment by caller
+        "is_active": is_active,
+        "z": 6 if is_active else 1,
+        "linewidth": LINEWIDTH_ACTIVE if is_active else (LINEWIDTH_DEFAULT if not has_active else LINEWIDTH_INACTIVE),
+        "alpha": ALPHA_ACTIVE if is_active else (ALPHA_DEFAULT if not has_active else ALPHA_INACTIVE),
+        "markersize": MARKERSIZE_ACTIVE if is_active else (MARKERSIZE_DEFAULT if not has_active else MARKERSIZE_INACTIVE),
+        "edgewidth": EDGEWIDTH_ACTIVE if is_active else EDGEWIDTH_INACTIVE,
+    }
+
+
+def _render_ej_plot(
+    ax,
+    display_indices: list[int],
+    prepared_by_segment: dict,
+    fit_by_segment: dict,
+    segment_styles: dict[int, dict],
+) -> None:
+    """Render the E-j scatter/line plot on *ax*."""
+    for segment_index in display_indices:
+        segment_prepared = prepared_by_segment.get(segment_index)
+        if segment_prepared is None:
+            continue
+        style = segment_styles[segment_index]
+        color = style["color"]
+        is_active = style["is_active"]
+        z = style["z"]
+        label = f"第{segment_index + 1}段"
+        ax.plot(
+            segment_prepared.e,
+            segment_prepared.j,
+            marker="o",
+            linestyle="-",
+            markersize=style["markersize"],
+            linewidth=style["linewidth"],
+            color=color,
+            alpha=style["alpha"],
+            label=label,
+            zorder=z,
+        )
+        segment_fit = fit_by_segment.get(segment_index)
+        if segment_fit is not None:
+            fit_indices = segment_fit.source_indices[segment_fit.selected_mask]
+            if fit_indices.size:
+                ax.scatter(
+                    segment_prepared.e[fit_indices],
+                    segment_prepared.j[fit_indices],
+                    s=SCATTER_RAW_FIT_ACTIVE if is_active else SCATTER_RAW_FIT_DEFAULT,
+                    color=color,
+                    edgecolors="#111827",
+                    linewidths=style["edgewidth"],
+                    alpha=ALPHA_SCATTER_SELECTED,
+                    zorder=z + 1,
+                )
+
+
+def _render_tafel_plot(
+    ax,
+    display_indices: list[int],
+    prepared_by_segment: dict,
+    fit_by_segment: dict,
+    segment_styles: dict[int, dict],
+) -> None:
+    """Render the Tafel plot (log |j| vs E) on *ax*."""
+    for segment_index in display_indices:
+        segment_prepared = prepared_by_segment.get(segment_index)
+        if segment_prepared is None:
+            continue
+        style = segment_styles[segment_index]
+        color = style["color"]
+        is_active = style["is_active"]
+        has_active = style.get("has_active", True)
+        z = style["z"]
+        segment_fit = fit_by_segment.get(segment_index)
+        if segment_fit is None:
+            x_seg, y_seg = compute_tafel_points(segment_prepared)
+            if x_seg.size:
+                ax.scatter(
+                    x_seg,
+                    y_seg,
+                    s=SCATTER_NO_FIT_ACTIVE if is_active else (SCATTER_NO_FIT_DEFAULT if not has_active else SCATTER_NO_FIT_INACTIVE),
+                    alpha=ALPHA_SCATTER_NO_FIT_ACTIVE if is_active else (ALPHA_SCATTER_NO_FIT_DEFAULT if not has_active else ALPHA_SCATTER_NO_FIT_INACTIVE),
+                    color=color,
+                    zorder=z,
+                )
+        else:
+            x_seg = segment_fit.x_log10_j
+            y_seg = segment_fit.y_e
+            mask = segment_fit.selected_mask
+            ax.scatter(
+                x_seg[~mask],
+                y_seg[~mask],
+                s=SCATTER_FIT_DESELECTED_ACTIVE if is_active else (SCATTER_FIT_DESELECTED_DEFAULT if not has_active else SCATTER_FIT_DESELECTED_INACTIVE),
+                alpha=ALPHA_SCATTER_DESELECTED_ACTIVE if is_active else (ALPHA_SCATTER_DESELECTED_DEFAULT if not has_active else ALPHA_SCATTER_DESELECTED_INACTIVE),
+                color=color,
+                zorder=z,
+            )
+            ax.scatter(
+                x_seg[mask],
+                y_seg[mask],
+                s=SCATTER_FIT_SELECTED_ACTIVE if is_active else (SCATTER_FIT_SELECTED_DEFAULT if not has_active else SCATTER_FIT_SELECTED_INACTIVE),
+                color=color,
+                edgecolors="#111827",
+                linewidths=style["edgewidth"],
+                zorder=z + 1,
+            )
+            xs = x_seg[mask]
+            if xs.size >= 2:
+                margin = max((float(xs.max()) - float(xs.min())) * FIT_LINE_MARGIN_FRAC, FIT_LINE_MARGIN_MIN)
+                x_line = np.linspace(float(xs.min()) - margin, float(xs.max()) + margin, FIT_LINE_POINTS)
+                y_line = segment_fit.slope_v_per_dec * x_line + segment_fit.intercept_v
+                slope_label = f"第{segment_index + 1}段, {segment_fit.slope_mv_per_dec:.1f} mV/dec"
+                ax.plot(
+                    x_line,
+                    y_line,
+                    linewidth=LINEWIDTH_FIT_ACTIVE if is_active else (LINEWIDTH_FIT_DEFAULT if not has_active else LINEWIDTH_FIT_INACTIVE),
+                    color=color,
+                    linestyle="--",
+                    alpha=ALPHA_FIT_LINE_ACTIVE if is_active else (ALPHA_FIT_LINE_DEFAULT if not has_active else ALPHA_FIT_LINE_INACTIVE),
+                    label=slope_label,
+                    zorder=z + 2,
+                )
+
+
 def render_figure(
     app: TafelAnalyzerApp,
     target_fig: Figure,
@@ -60,7 +225,6 @@ def render_figure(
     fit_by_segment: dict[int, TafelFit],
     fit_error_by_segment: dict[int, str] | None = None,
 ):
-    from core.types import COMPARISON_COLORS
     from core.theme import MPL_RC, TEXT_PRIMARY
 
     target_fig.clear()
@@ -68,129 +232,66 @@ def render_figure(
         fit_error_by_segment = {}
     if not prepared_by_segment:
         with matplotlib.rc_context(MPL_RC):
-            gs = target_fig.add_gridspec(1, 2, wspace=0.28, left=0.07, right=0.97, top=0.92, bottom=0.12)
+            gs = target_fig.add_gridspec(1, 2, wspace=GRIDSPEC_WSPACE, left=GRIDSPEC_LEFT, right=GRIDSPEC_RIGHT, top=GRIDSPEC_TOP, bottom=GRIDSPEC_BOTTOM)
             ax0 = target_fig.add_subplot(gs[0])
             ax1 = target_fig.add_subplot(gs[1])
             ax0.grid(True)
             ax1.grid(True)
-            ax0.set_title("无数据", fontsize=12, color=TEXT_PRIMARY, pad=8)
-            ax1.set_title("Tafel", fontsize=12, color=TEXT_PRIMARY, pad=8)
+            ax0.set_title("无数据", fontsize=FONTSIZE_TITLE, color=TEXT_PRIMARY, pad=8)
+            ax1.set_title("Tafel", fontsize=FONTSIZE_TITLE, color=TEXT_PRIMARY, pad=8)
         return ax0, ax1
     ref_prepared = prepared_by_segment.get(active_index) or next(iter(prepared_by_segment.values()))
+    has_active = active_index in prepared_by_segment
     with matplotlib.rc_context(MPL_RC):
-        gs = target_fig.add_gridspec(1, 2, wspace=0.28, left=0.07, right=0.97, top=0.92, bottom=0.12)
+        gs = target_fig.add_gridspec(1, 2, wspace=GRIDSPEC_WSPACE, left=GRIDSPEC_LEFT, right=GRIDSPEC_RIGHT, top=GRIDSPEC_TOP, bottom=GRIDSPEC_BOTTOM)
         ax0 = target_fig.add_subplot(gs[0])
         ax1 = target_fig.add_subplot(gs[1])
+
+        # Build per-segment style dict
+        segment_styles: dict[int, dict] = {}
         for segment_index in display_indices:
-            segment_prepared = prepared_by_segment.get(segment_index)
-            if segment_prepared is None:
+            if segment_index not in prepared_by_segment:
                 continue
-            color = p_get_segment_color(app, segment_index)
-            is_active = segment_index == active_index
-            line_width = 1.7 if is_active else 1.0
-            alpha = 1.0 if is_active else 0.72
-            label = f"第{segment_index + 1}段"
-            ax0.plot(
-                segment_prepared.e,
-                segment_prepared.j,
-                marker="o",
-                linestyle="-",
-                markersize=3.0,
-                linewidth=line_width,
-                color=color,
-                alpha=alpha,
-                label=label,
-            )
-            segment_fit = fit_by_segment.get(segment_index)
-            if segment_fit is not None:
-                fit_indices = segment_fit.source_indices[segment_fit.selected_mask]
-                if fit_indices.size:
-                    ax0.scatter(
-                        segment_prepared.e[fit_indices],
-                        segment_prepared.j[fit_indices],
-                        s=30 if is_active else 24,
-                        color=color,
-                        edgecolors="#111827",
-                        linewidths=0.5,
-                        alpha=0.95,
-                        zorder=4,
-                    )
-            if segment_fit is None:
-                x_seg, y_seg = compute_tafel_points(segment_prepared)
-                if x_seg.size:
-                    ax1.scatter(
-                        x_seg,
-                        y_seg,
-                        s=18,
-                        alpha=0.35 if not is_active else 0.65,
-                        color=color,
-                        zorder=2,
-                    )
-            else:
-                x_seg = segment_fit.x_log10_j
-                y_seg = segment_fit.y_e
-                mask = segment_fit.selected_mask
-                ax1.scatter(
-                    x_seg[~mask],
-                    y_seg[~mask],
-                    s=18,
-                    alpha=0.18 if not is_active else 0.35,
-                    color=color,
-                    zorder=2,
-                )
-                ax1.scatter(
-                    x_seg[mask],
-                    y_seg[mask],
-                    s=32 if is_active else 26,
-                    color=color,
-                    edgecolors="#111827",
-                    linewidths=0.5,
-                    zorder=3,
-                )
-                xs = x_seg[mask]
-                if xs.size >= 2:
-                    margin = max((float(xs.max()) - float(xs.min())) * 0.08, 0.02)
-                    x_line = np.linspace(float(xs.min()) - margin, float(xs.max()) + margin, 100)
-                    y_line = segment_fit.slope_v_per_dec * x_line + segment_fit.intercept_v
-                    slope_label = f"第{segment_index + 1}段, {segment_fit.slope_mv_per_dec:.1f} mV/dec"
-                    ax1.plot(
-                        x_line,
-                        y_line,
-                        linewidth=2.1 if is_active else 1.4,
-                        color=color,
-                        linestyle="--",
-                        alpha=0.95 if is_active else 0.8,
-                        label=slope_label,
-                        zorder=4,
-                    )
-        active_fit = fit_by_segment.get(active_index)
-        active_error = fit_error_by_segment.get(active_index)
-        ax0.set_xlabel(ref_prepared.e_label, fontsize=11)
-        ax0.set_ylabel(ref_prepared.j_label, fontsize=11)
+            is_active = has_active and segment_index == active_index
+            style = _compute_segment_styles(has_active, is_active)
+            style["color"] = p_get_segment_color(app, segment_index)
+            style["has_active"] = has_active
+            segment_styles[segment_index] = style
+
+        _render_ej_plot(ax0, display_indices, prepared_by_segment, fit_by_segment, segment_styles)
+        _render_tafel_plot(ax1, display_indices, prepared_by_segment, fit_by_segment, segment_styles)
+
+        # Labels, titles, legends
+        active_fit = fit_by_segment.get(active_index) if has_active else None
+        active_error = fit_error_by_segment.get(active_index) if has_active else None
+        ax0.set_xlabel(ref_prepared.e_label, fontsize=FONTSIZE_LABEL)
+        ax0.set_ylabel(ref_prepared.j_label, fontsize=FONTSIZE_LABEL)
         ax0.set_title(
             MULTI_SEGMENT_TITLE if len(display_indices) > 1 else f"第{ref_prepared.segment.index + 1}段电化学数据",
-            fontsize=12,
+            fontsize=FONTSIZE_TITLE,
             color=TEXT_PRIMARY,
             pad=8,
         )
         ax0.grid(True)
-        legend0 = ax0.legend(fontsize=8, loc="best")
-        if active_fit is None:
+        legend0 = ax0.legend(fontsize=FONTSIZE_LEGEND, loc="best")
+        if not has_active:
+            ax1.set_title("Tafel 拟合", fontsize=FONTSIZE_TITLE, color=TEXT_PRIMARY, pad=8)
+        elif active_fit is None:
             title = f"Tafel 拟合失败 — 第{active_index + 1}段"
             if active_error:
                 title = f"{title} | {active_error.strip()[:60]}"
-            ax1.set_title(title, fontsize=12, color=TEXT_PRIMARY, pad=8)
+            ax1.set_title(title, fontsize=FONTSIZE_TITLE, color=TEXT_PRIMARY, pad=8)
         else:
             ax1.set_title(
                 f"当前分段第{active_index + 1}段 — {active_fit.slope_mv_per_dec:.2f} mV/dec, R²={active_fit.r2:.4f}",
-                fontsize=12,
+                fontsize=FONTSIZE_TITLE,
                 color=TEXT_PRIMARY,
                 pad=8,
             )
-        ax1.set_xlabel("log10(|j|)", fontsize=11)
-        ax1.set_ylabel(ref_prepared.tafel_y_label, fontsize=11)
+        ax1.set_xlabel("log10(|j|)", fontsize=FONTSIZE_LABEL)
+        ax1.set_ylabel(ref_prepared.tafel_y_label, fontsize=FONTSIZE_LABEL)
         ax1.grid(True)
-        legend1 = ax1.legend(fontsize=8, loc="best")
+        legend1 = ax1.legend(fontsize=FONTSIZE_LEGEND, loc="best")
         enable_draggable_legend(legend0)
         enable_draggable_legend(legend1)
     return ax0, ax1
@@ -319,7 +420,7 @@ def capture_axes_limits(app: TafelAnalyzerApp) -> list[tuple[tuple[float, float]
     return limits
 
 
-def refresh_selector(app: TafelAnalyzerApp) -> None:
+def destroy_selector(app: TafelAnalyzerApp) -> None:
     selector = app._app_state.get("selector")
     if selector is not None:
         try:
@@ -327,9 +428,30 @@ def refresh_selector(app: TafelAnalyzerApp) -> None:
             selector.disconnect_events()
         except Exception:
             pass
+        try:
+            artists = list(getattr(selector, "artists", []) or [])
+            for artist in artists:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    app._app_state["selector"] = None
+
+
+def refresh_selector(app: TafelAnalyzerApp) -> None:
+    destroy_selector(app)
+    manual_current = app._app_state.get("manual_mode", False)
+    if hasattr(app, "state"):
+        manual_current = app.state.interaction.manual_is_current(
+            path=app.state.files.current_path,
+            generation=app.state.operations.generation,
+        )
+    if not manual_current:
+        return
     ax_tafel = app._app_state.get("ax_tafel")
     if ax_tafel is None:
-        app._app_state["selector"] = None
         return
     selector = RectangleSelector(
         ax_tafel,
@@ -342,7 +464,7 @@ def refresh_selector(app: TafelAnalyzerApp) -> None:
         interactive=False,
         props={"facecolor": "#60a5fa", "edgecolor": "#2563eb", "alpha": 0.18, "fill": True},
     )
-    selector.set_active(bool(app._app_state.get("manual_mode", False)))
+    selector.set_active(True)
     app._app_state["selector"] = selector
 
 
@@ -355,17 +477,13 @@ def draw(
     fit_error: str | None = None,
 ) -> None:
     if preserve_view_state is None:
-        preserve_view_state = (
-            capture_plot_view_state(app, app.fig)
-            if len(app.fig.axes) >= 2
-            else app._app_state.get("single_plot_view_state")
-        )
-    active_index = int(app._app_state.get("active_segment_index", prepared.segment.index))
-    selected_indices = list(app._app_state.get("selected_segment_indices", []))
+        preserve_view_state = current_or_saved_plot_view_state(app, "single")
+    active_index = app.state.segments.active_index
+    selected_indices = list(app.state.segments.selected_indices)
     display_indices = sorted(set(selected_indices))
-    p_map = app._app_state.get("prepared_by_segment") or {prepared.segment.index: prepared}
-    f_map = app._app_state.get("fit_by_segment") or ({prepared.segment.index: fit} if fit is not None else {})
-    fe_map = dict(app._app_state.get("fit_error_by_segment") or {})
+    p_map = app.state.analysis.prepared_by_segment or {prepared.segment.index: prepared}
+    f_map = app.state.analysis.fit_by_segment or ({prepared.segment.index: fit} if fit is not None else {})
+    fe_map = dict(app.state.analysis.fit_error_by_segment)
     if fit_error and active_index not in fe_map:
         fe_map[active_index] = fit_error
     ax_left, ax_tafel = render_figure(
@@ -381,6 +499,7 @@ def draw(
     apply_plot_view_state(app, [ax_left, ax_tafel], preserve_view_state)
     app._app_state["ax_tafel"] = ax_tafel
     app._app_state["single_plot_view_state"] = capture_plot_view_state(app, app.fig)
+    app._app_state["active_chart_mode"] = "single"
     app.canvas.draw_idle()
     refresh_selector(app)
 
@@ -397,7 +516,7 @@ def draw_placeholder(app: TafelAnalyzerApp) -> None:
             "请选择数据文件并输入公式\n手动模式下可在右侧 Tafel 图框选区域",
             ha="center",
             va="center",
-            fontsize=16,
+            fontsize=FONTSIZE_PLACEHOLDER,
             color=TEXT_SECONDARY,
             transform=ax.transAxes,
         )
@@ -408,6 +527,7 @@ def draw_placeholder(app: TafelAnalyzerApp) -> None:
     app._app_state["ax_tafel"] = None
     app._app_state["single_plot_default_view_state"] = None
     app._app_state["single_plot_view_state"] = None
+    app._app_state["active_chart_mode"] = "single"
     app.canvas.draw_idle()
     refresh_selector(app)
 
@@ -420,15 +540,3 @@ def p_get_segment_color(app, segment_index, file_path=None):
     return color_map.get(int(segment_index), COMPARISON_COLORS[int(segment_index) % len(COMPARISON_COLORS)])
 
 
-def draw_placeholder_fig(fig, canvas, axes_list):
-    """Draw placeholder on matplotlib figure/canvas (Qt-compatible)."""
-    fig.clear()
-    ax = fig.add_subplot(111)
-    ax.text(0.5, 0.5, "请选择数据文件并输入公式\n手动模式下可在右侧 Tafel 图框选区域",
-            ha="center", va="center", fontsize=16, color="#475569",
-            transform=ax.transAxes)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    canvas.draw_idle()

@@ -91,6 +91,23 @@ INPUT_STYLE = f"""
     }}
 """
 
+COMBO_BOX_STYLE = f"""
+    QComboBox {{
+        border: 1px solid {BORDER};
+        border-radius: 4px;
+        padding: 4px 8px;
+        background: {BG_CARD};
+        color: {TEXT_PRIMARY};
+        font-size: 12px;
+    }}
+    QComboBox:hover {{
+        border-color: {TEXT_DISABLED};
+    }}
+    QComboBox:focus {{
+        border-color: {BORDER_FOCUS};
+    }}
+"""
+
 LIST_STYLE = f"""
     QListWidget {{
         border: none;
@@ -105,6 +122,13 @@ LIST_STYLE = f"""
         background: {BG_SELECTED};
         border-radius: 4px;
     }}
+"""
+
+SCROLL_AREA_STYLE = """
+    QScrollArea {
+        border: none;
+        background: transparent;
+    }
 """
 
 # ━━ Compact toolbar styles ━━
@@ -190,13 +214,13 @@ SEGMENT_ITEM_STYLE = f"""
 
 # ━━ Palette panel styles ━━
 
-COLOR_SWATCH_STYLE = """
+COLOR_SWATCH_STYLE = f"""
     QPushButton {{
-        border: 2px solid white;
-        border-radius: 8px;
+        border: 1px solid {BORDER};
+        border-radius: 6px;
     }}
     QPushButton:hover {{
-        border-color: #2563eb;
+        border-color: {ACCENT};
     }}
 """
 

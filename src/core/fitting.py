@@ -156,28 +156,47 @@ def _best_window_fit(
         if window > n:
             break
         w = float(window)
-        for start in range(0, n - window + 1):
-            end = start + window
-            sx = cum_x[end] - cum_x[start]
-            sy = cum_y[end] - cum_y[start]
-            sxx = cum_xx[end] - cum_xx[start]
-            sxy = cum_xy[end] - cum_xy[start]
-            syy = cum_yy[end] - cum_yy[start]
-            var_x = w * sxx - sx * sx
-            if abs(var_x) < VAR_EPSILON:
+        num_starts = n - window + 1
+        starts = np.arange(num_starts)
+        ends = starts + window
+
+        sx = cum_x[ends] - cum_x[starts]
+        sy = cum_y[ends] - cum_y[starts]
+        sxx = cum_xx[ends] - cum_xx[starts]
+        sxy = cum_xy[ends] - cum_xy[starts]
+        syy = cum_yy[ends] - cum_yy[starts]
+
+        var_x = w * sxx - sx * sx
+        valid = np.abs(var_x) >= VAR_EPSILON
+
+        if not np.any(valid):
+            continue
+
+        cov_xy = w * sxy - sx * sy
+        slopes = np.where(valid, cov_xy / var_x, 0.0)
+        var_y = w * syy - sy * sy
+        r2 = np.where(
+            valid,
+            np.where(np.abs(var_y) < VAR_EPSILON, 1.0, (cov_xy * cov_xy) / (var_x * var_y)),
+            0.0,
+        )
+
+        if min_r2 is not None:
+            valid = valid & (r2 >= float(min_r2))
+            if not np.any(valid):
                 continue
-            cov_xy = w * sxy - sx * sy
-            slope = cov_xy / var_x
-            var_y = w * syy - sy * sy
-            if abs(var_y) < VAR_EPSILON:
-                r2 = 1.0
-            else:
-                r2 = (cov_xy * cov_xy) / (var_x * var_y)
-            if min_r2 is not None and r2 < float(min_r2):
-                continue
-            rank = _window_rank(r2, slope, window, fit_priority)
-            if best is None or rank < best[0]:
-                best = (rank, start, end, slope, r2)
+
+        valid_indices = np.where(valid)[0]
+        if valid_indices.size == 0:
+            continue
+        if fit_priority == "slope":
+            best_local_idx = valid_indices[np.argmin(np.abs(slopes[valid_indices]))]
+        else:
+            best_local_idx = valid_indices[np.argmax(r2[valid_indices])]
+        rank = _window_rank(float(r2[best_local_idx]), float(slopes[best_local_idx]), window, fit_priority)
+        if best is None or rank < best[0]:
+            best = (rank, int(best_local_idx), int(best_local_idx) + window, float(slopes[best_local_idx]), float(r2[best_local_idx]))
+
     if best is None:
         if min_r2 is not None:
             raise ValueError(f"未找到满足最小 R²={float(min_r2):.6f} 的 Tafel 区间")
@@ -467,7 +486,7 @@ def prepare_series(
         eta=eta,
         e_label=potential_result.formula,
         j_label=current_result.formula,
-        tafel_y_label="over potential（V）",
+        tafel_y_label="过电位（V）",
         potential_channel=potential_result.primary_channel,
         current_channel=current_result.primary_channel,
         potential_formula=potential_result.formula,

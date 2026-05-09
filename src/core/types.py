@@ -107,6 +107,20 @@ class ComparisonItem:
     color: str
     visible: bool = True
 
+    @property
+    def display_label(self) -> str:
+        return self.label or f"{self.file_name}-第{self.segment_index + 1}段"
+
+    def rename(self, base_name: str) -> None:
+        self.file_name = base_name
+        self.label = f"{base_name}-第{self.segment_index + 1}段"
+
+    def set_label(self, text: str) -> None:
+        """仅修改显示标签，不影响 file_name。"""
+        text = text.strip()
+        if text:
+            self.label = text
+
 
 def _normalize_optional_range(
     value_range: tuple[float, float] | None,

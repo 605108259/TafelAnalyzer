@@ -13,9 +13,10 @@ from ui.theme import (
     PANEL_STYLE, SMALL_BUTTON_STYLE, DANGER_BUTTON_STYLE,
     ACCENT_BUTTON_STYLE, LIST_STYLE, SEGMENT_ITEM_STYLE,
     TEXT_PRIMARY, TEXT_SECONDARY, SUCCESS, ACCENT, BG_HOVER, BG_SELECTED,
-    ICON_BUTTON_STYLE, CheckmarkBox,
+    ICON_BUTTON_STYLE, CheckmarkBox, COMBO_BOX_STYLE,
 )
 from ui.icons import line_icon
+from ui.color_utils import swatch_button_style
 from core.types import COMPARISON_COLORS as _DEFAULT_COLORS
 
 
@@ -121,10 +122,7 @@ class SegmentItemWidget(QWidget):
         # Color swatch
         self.color_btn = QPushButton()
         self.color_btn.setFixedSize(16, 16)
-        self.color_btn.setStyleSheet(
-            f"QPushButton {{ background: {color}; border: 1px solid #e2e8f0; border-radius: 4px; }}"
-            f"QPushButton:hover {{ border-color: {ACCENT}; }}"
-        )
+        self.color_btn.setStyleSheet(swatch_button_style(color, radius=4))
         self.color_btn.setCursor(Qt.PointingHandCursor)
         self.color_btn.clicked.connect(lambda: self.color_clicked.emit(index))
         layout.addWidget(self.color_btn)
@@ -153,8 +151,7 @@ class SegmentItemWidget(QWidget):
         self.cb.setChecked(is_checked)
         self.cb.blockSignals(False)
         self.color_btn.setStyleSheet(
-            f"QPushButton {{ background: {color}; border: 1px solid #e2e8f0; border-radius: 4px; }}"
-            f"QPushButton:hover {{ border-color: {ACCENT}; }}"
+            swatch_button_style(color, radius=4)
         )
         self._apply_bg()
 
@@ -181,14 +178,14 @@ class FileSegmentPanel(QWidget):
     # Segment signals
     segment_activated = Signal(int)
     segment_toggled = Signal(int, bool)
-    segment_color_changed = Signal(int, str)
+    segment_color_changed = Signal(int)
     select_all_clicked = Signal()
     clear_all_clicked = Signal()
     add_to_comparison = Signal()
 
     # Palette signals
     palette_scheme_changed = Signal(str)
-    palette_apply_clicked = Signal()
+    palette_apply_clicked = Signal(str)
     palette_manage_clicked = Signal()
 
     # Export signals
@@ -213,7 +210,7 @@ class FileSegmentPanel(QWidget):
 
         # Title row: count badge + icon buttons
         title_row = QHBoxLayout()
-        self.file_count_label = QLabel("📂 文件 (0/0)")
+        self.file_count_label = QLabel("文件 (0/0)")
         self.file_count_label.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px; font-weight: 600;")
         title_row.addWidget(self.file_count_label, stretch=1)
 
@@ -254,7 +251,7 @@ class FileSegmentPanel(QWidget):
 
         # Segment header
         seg_header = QHBoxLayout()
-        self.seg_count_label = QLabel("📋 分段 (0/0)")
+        self.seg_count_label = QLabel("分段 (0/0)")
         self.seg_count_label.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px; font-weight: 600;")
         seg_header.addWidget(self.seg_count_label, stretch=1)
 
@@ -270,7 +267,7 @@ class FileSegmentPanel(QWidget):
         btn_clear_all.clicked.connect(self.clear_all_clicked.emit)
         seg_header.addWidget(btn_clear_all)
 
-        btn_add_cmp = QPushButton("📌 对比")
+        btn_add_cmp = QPushButton("对比")
         btn_add_cmp.setStyleSheet(ACCENT_BUTTON_STYLE)
         btn_add_cmp.setCursor(Qt.PointingHandCursor)
         btn_add_cmp.clicked.connect(self.add_to_comparison.emit)
@@ -280,22 +277,33 @@ class FileSegmentPanel(QWidget):
 
         # Palette row
         palette_row = QHBoxLayout()
-        palette_row.addWidget(QLabel("🎨 配色:"))
+        palette_lbl = QLabel("配色:")
+        palette_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        palette_row.addWidget(palette_lbl)
         self.palette_combo = QComboBox()
-        self.palette_combo.setStyleSheet(
-            f"QComboBox {{ border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 8px; font-size: 12px; }}"
-        )
+        self.palette_combo.setStyleSheet(COMBO_BOX_STYLE)
         self.palette_combo.currentTextChanged.connect(self.palette_scheme_changed.emit)
         palette_row.addWidget(self.palette_combo, stretch=1)
+
+        self.palette_apply_mode = QComboBox()
+        self.palette_apply_mode.setStyleSheet(COMBO_BOX_STYLE)
+        self.palette_apply_mode.addItem("逐个", "sequential")
+        self.palette_apply_mode.addItem("插值", "interpolate")
+        self.palette_apply_mode.setFixedWidth(64)
+        palette_row.addWidget(self.palette_apply_mode)
 
         btn_apply = QPushButton("应用")
         btn_apply.setStyleSheet(SMALL_BUTTON_STYLE)
         btn_apply.setCursor(Qt.PointingHandCursor)
-        btn_apply.clicked.connect(self.palette_apply_clicked.emit)
+        btn_apply.clicked.connect(
+            lambda: self.palette_apply_clicked.emit(self.palette_apply_mode.currentData() or "sequential")
+        )
         palette_row.addWidget(btn_apply)
 
-        btn_manage = QPushButton("⚙")
-        btn_manage.setStyleSheet(SMALL_BUTTON_STYLE)
+        btn_manage = QToolButton()
+        btn_manage.setIcon(line_icon("gear", color=TEXT_SECONDARY, size=14))
+        btn_manage.setToolTip("管理配色方案")
+        btn_manage.setStyleSheet(ICON_BUTTON_STYLE)
         btn_manage.setCursor(Qt.PointingHandCursor)
         btn_manage.clicked.connect(self.palette_manage_clicked.emit)
         palette_row.addWidget(btn_manage)
@@ -385,7 +393,7 @@ class FileSegmentPanel(QWidget):
             self.file_list.setItemWidget(item, widget)
         processed_count = len(self._processed)
         total = len(self._file_paths)
-        self.file_count_label.setText(f"📂 文件 ({processed_count}/{total})")
+        self.file_count_label.setText(f"文件 ({processed_count}/{total})")
         self._update_file_highlight()
 
     def _on_file_remove(self, path: Path):
@@ -471,7 +479,7 @@ class FileSegmentPanel(QWidget):
             self.segment_list.setItemWidget(item, widget)
 
         self.seg_count_label.setText(
-            f"📋 分段 ({len(self._checked_indices)}/{len(self._segments)})"
+            f"分段 ({len(self._checked_indices)}/{len(self._segments)})"
         )
         for i in range(self.segment_list.count()):
             item = self.segment_list.item(i)
@@ -497,7 +505,7 @@ class FileSegmentPanel(QWidget):
                     color=self._segment_colors.get(idx, _DEFAULT_COLORS[idx % len(_DEFAULT_COLORS)]),
                 )
         self.seg_count_label.setText(
-            f"📋 分段 ({len(self._checked_indices)}/{len(self._segments)})"
+            f"分段 ({len(self._checked_indices)}/{len(self._segments)})"
         )
 
     # ━━ Palette schemes ━━

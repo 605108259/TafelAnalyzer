@@ -7,7 +7,8 @@ from PySide6.QtCore import Qt
 
 from ui.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE
 from ui.theme import BG_WINDOW, BG_CARD, TEXT_PRIMARY, TEXT_SECONDARY
-from core.types import COMPARISON_COLORS
+from ui.state import AppState, create_initial_state
+from ui.view_coordinator import ViewCoordinator
 
 
 class TafelAnalyzerApp(QMainWindow):
@@ -45,39 +46,12 @@ class TafelAnalyzerApp(QMainWindow):
         self._init_app_state()
         self._load_settings()
         self._build_ui()
+        self.views = ViewCoordinator(self)
         self._init_controllers()
 
     def _init_app_state(self) -> None:
-        self._app_state: dict = {
-            "selected_paths": [],
-            "tdms_path": None,
-            "channels": None,
-            "segments": [],
-            "segment_colors": {},
-            "active_segment_index": 0,
-            "selected_segment_indices": [],
-            "prepared": None,
-            "fit": None,
-            "fit_by_segment": {},
-            "prepared_by_segment": {},
-            "fit_error_by_segment": {},
-            "manual_mode": False,
-            "selector": None,
-            "comparison_mode": False,
-            "comparison_items": [],
-            "palette_schemes": {"默认方案": {str(i): c for i, c in enumerate([
-                "#b90746", "#0891b2", "#7c3aed", "#16a34a", "#f59e0b",
-                "#dc2626", "#2563eb", "#d946ef", "#0ea5e9", "#84cc16",
-            ])}},
-            "palette_scheme_slot_counts": {"默认方案": 10},
-            "active_palette_scheme": "默认方案",
-            "saved_parameter_defaults": {},
-            "file_ui_cache": {},
-            "result_cache": {},
-            "current_result_keys": {},
-            "_op_generation": 0,
-            "_fitting_lock": False,
-        }
+        self._app_state: dict = create_initial_state()
+        self.state = AppState(self._app_state)
 
     def _load_settings(self) -> None:
         try:
@@ -113,8 +87,12 @@ class TafelAnalyzerApp(QMainWindow):
             self.toolbar.clear_nav_mode()
         if hasattr(self, "chart"):
             self.chart.cancel_nav_modes()
+        if hasattr(self, "_comp_nav_buttons"):
+            self._set_comp_nav_active(None)
         if self._app_state.get("manual_mode"):
             self.fitting.disable_manual_mode()
+        if hasattr(self, "views"):
+            self.views.reset_active_segment()
 
     def _on_params_changed(self, params: dict) -> None:
         path = self._app_state.get("tdms_path")
@@ -190,19 +168,29 @@ class TafelAnalyzerApp(QMainWindow):
         _nav = QHBoxLayout(self._comp_nav)
         _nav.setContentsMargins(8, 0, 8, 0)
         _nav.setSpacing(4)
-        _nav_tb = self.chart._nav_toolbar
+        self._comp_nav_buttons: dict[str, QToolButton] = {}
+        self._comp_active_tool: str | None = None
+        active_style = (
+            ICON_BUTTON_STYLE
+            + "QToolButton:checked { background: #2563eb; border-radius: 6px; }"
+            + "QToolButton:checked:hover { background: #1d4ed8; }"
+        )
         for name, tip, cb in [
-            ("home", "复位", _nav_tb.home), ("back", "后退", _nav_tb.back),
-            ("forward", "前进", _nav_tb.forward), ("zoom", "缩放", _nav_tb.zoom),
-            ("pan", "平移", _nav_tb.pan),
+            ("home", "复位", self._on_comp_nav_home),
+            ("back", "后退", self._on_comp_nav_back),
+            ("forward", "前进", self._on_comp_nav_forward),
+            ("zoom", "缩放", lambda _checked=False: self._on_comp_nav_tool("zoom")),
+            ("pan", "平移", lambda _checked=False: self._on_comp_nav_tool("pan")),
         ]:
             b = QToolButton()
             b.setIcon(line_icon(name, color=TEXT_PRIMARY, size=16))
             b.setToolTip(tip)
             b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet(ICON_BUTTON_STYLE)
+            b.setCheckable(name in {"zoom", "pan"})
+            b.setStyleSheet(active_style if name in {"zoom", "pan"} else ICON_BUTTON_STYLE)
             b.clicked.connect(cb)
             _nav.addWidget(b)
+            self._comp_nav_buttons[name] = b
         _save = QToolButton()
         _save.setIcon(line_icon("save", color=TEXT_PRIMARY, size=16))
         _save.setToolTip("保存图片")
@@ -242,29 +230,42 @@ class TafelAnalyzerApp(QMainWindow):
         self.side_stack.setCurrentIndex(PANEL_FILES)
         self.right_stack.setCurrentIndex(0)
 
-    def _on_panel_clicked(self, panel_id: int) -> None:
-        if panel_id < 0:
-            self.side_stack.hide()
-            return
-        self.side_stack.show()
-        self.side_stack.setCurrentIndex(panel_id)
+    def _set_comp_nav_active(self, name: str | None) -> None:
+        self._comp_active_tool = name
+        for tool_name, btn in self._comp_nav_buttons.items():
+            if tool_name not in {"zoom", "pan"}:
+                continue
+            btn.blockSignals(True)
+            btn.setChecked(tool_name == name)
+            btn.blockSignals(False)
 
-        if panel_id == PANEL_FILES:
-            self.right_stack.setCurrentIndex(0)  # chart workspace
-            self._app_state["comparison_mode"] = False
-            self.toolbar.show()
-            self._comp_nav.hide()
-            self.summary_table.hide()
-        elif panel_id == PANEL_COMPARISON:
-            self.right_stack.setCurrentIndex(0)  # chart workspace
-            self._app_state["comparison_mode"] = True
-            self.toolbar.hide()
-            self._comp_nav.show()
-            self.summary_table.hide()
-        elif panel_id == PANEL_PALETTE:
-            self.right_stack.setCurrentIndex(1)  # palette workspace
-            self.summary_table.hide()
-            self._update_palette_workspace()
+    def _on_comp_nav_tool(self, name: str) -> None:
+        if self._comp_active_tool == name:
+            self.chart.cancel_nav_modes()
+            self._set_comp_nav_active(None)
+            return
+        self.chart.cancel_nav_modes()
+        self._set_comp_nav_active(name)
+        if name == "zoom":
+            self.chart.nav_zoom()
+        elif name == "pan":
+            self.chart.nav_pan()
+
+    def _on_comp_nav_home(self) -> None:
+        self._set_comp_nav_active(None)
+        self.chart.nav_home()
+
+    def _on_comp_nav_back(self) -> None:
+        self._set_comp_nav_active(None)
+        self.chart.nav_back()
+
+    def _on_comp_nav_forward(self) -> None:
+        self._set_comp_nav_active(None)
+        self.chart.nav_forward()
+
+    def _on_panel_clicked(self, panel_id: int) -> None:
+        self.activity_bar.set_active(panel_id)
+        self.views.show_panel(panel_id)
 
     def _save_chart_image(self) -> None:
         from PySide6.QtWidgets import QFileDialog, QMessageBox
@@ -281,34 +282,20 @@ class TafelAnalyzerApp(QMainWindow):
             QMessageBox.critical(self, "保存失败", str(exc))
 
     def _update_palette_workspace(self):
-        scheme_name = self._app_state.get("active_palette_scheme", "默认方案")
-        schemes = self._app_state.get("palette_schemes", {})
-        slot_count = self._app_state.get("palette_scheme_slot_counts", {}).get(scheme_name, 8)
-        colors = []
-        names = []
-        scheme_colors = schemes.get(scheme_name, {})
-        for i in range(slot_count):
-            colors.append(scheme_colors.get(str(i), COMPARISON_COLORS[i % len(COMPARISON_COLORS)]))
-            names.append(f"第{i+1}段")
-        self.palette_workspace.set_scheme(scheme_name, colors, names)
+        self.views.refresh_palette_workspace()
+
+    def _render_single_workspace(self) -> None:
+        self.views.render_single()
 
     def _switch_mode(self, mode: str) -> None:
         if mode == "single":
-            self._app_state["comparison_mode"] = False
             self.activity_bar.set_active(PANEL_FILES)
             self.side_stack.setCurrentIndex(PANEL_FILES)
-            self.right_stack.setCurrentIndex(0)
-            self.toolbar.show()
-            self._comp_nav.hide()
-            self.summary_table.hide()
+            self.views.show_single()
         else:
-            self._app_state["comparison_mode"] = True
             self.activity_bar.set_active(PANEL_COMPARISON)
             self.side_stack.setCurrentIndex(PANEL_COMPARISON)
-            self.right_stack.setCurrentIndex(0)
-            self.toolbar.hide()
-            self._comp_nav.show()
-            self.summary_table.hide()
+            self.views.show_comparison()
 
     def _init_controllers(self) -> None:
         from ui.controllers.file_ctrl import FileController
@@ -376,6 +363,13 @@ class TafelAnalyzerApp(QMainWindow):
         ps.apply_to_current_clicked.connect(self.files.on_palette_apply)
         ps.save_as_new_clicked.connect(self.files.on_palette_save_as_new)
         ps.delete_scheme_clicked.connect(self.files.on_palette_delete)
+        ps.color_move_requested.connect(self.files.on_palette_color_move)
+        ps.color_add_requested.connect(self.files.on_palette_color_add)
+        ps.color_remove_requested.connect(self.files.on_palette_color_remove)
+        ps.colors_reverse_requested.connect(self.files.on_palette_colors_reverse)
+        ps.colors_gradient_requested.connect(self.files.on_palette_colors_gradient)
+        ps.default_reset_requested.connect(self.files.on_palette_default_reset)
+        ps.color_selected.connect(self.palette_workspace.set_selected_index)
 
         # Wire toolbar formula/param persistence
         self.toolbar.formulas_changed.connect(self._on_formulas_changed)
@@ -385,6 +379,9 @@ class TafelAnalyzerApp(QMainWindow):
         self.palette_workspace.swatch_clicked.connect(
             self.files.on_palette_color_changed
         )
+        self.palette_workspace.color_selected.connect(
+            self.palette_sidebar.set_selected_index
+        )
 
         # Initial palette controls refresh
-        self.files._refresh_palette_controls()
+        self.views.refresh_palette_controls()

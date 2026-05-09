@@ -43,7 +43,7 @@ class ChartArea(QWidget):
         self.fig.canvas.mpl_connect("button_press_event", self._on_fig_click)
 
     def _on_fig_click(self, event) -> None:
-        if event.inaxes is None and self._nav_toolbar.mode:
+        if event.inaxes is None:
             self.clicked_outside_axes.emit()
 
     def clear_figure(self) -> None:

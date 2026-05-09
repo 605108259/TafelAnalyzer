@@ -18,7 +18,6 @@ def make_result_cache_key(
     potential_formula: str,
     current_formula: str,
     e_eq: float,
-    active_segment_index: int,
     selected_segment_indices: tuple[int, ...],
     min_window: int,
     max_window: int,
@@ -32,7 +31,6 @@ def make_result_cache_key(
         potential_formula,
         current_formula,
         round(float(e_eq), 12),
-        int(active_segment_index),
         tuple(int(index) for index in selected_segment_indices),
         int(min_window),
         int(max_window),
@@ -66,7 +64,7 @@ def cache_key_from_json(cache_key: list) -> tuple:
 def build_cache_payload(app: TafelAnalyzerApp) -> dict:
     from core.rendering import capture_axes_limits, capture_plot_view_state
 
-    current_path = app._app_state.get("tdms_path")
+    current_path = app.state.files.current_path if hasattr(app, "state") else app._app_state.get("tdms_path")
     return {
         "selected_paths": [str(path) for path in app._app_state["selected_paths"]],
         "current_path": str(current_path) if current_path is not None else None,

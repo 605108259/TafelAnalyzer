@@ -16,6 +16,10 @@ def comparison_item_id(file_path: Path, segment_index: int) -> str:
     return f"{file_path}::{segment_index}"
 
 
+def comparison_item_label(item) -> str:
+    return getattr(item, "display_label", None) or item.label or f"{item.file_name}-第{item.segment_index + 1}段"
+
+
 def render_comparison_empty(app: TafelAnalyzerApp) -> None:
     from core.theme import MPL_RC, TEXT_SECONDARY
 
@@ -24,7 +28,7 @@ def render_comparison_empty(app: TafelAnalyzerApp) -> None:
         ax = app.fig.add_subplot(111)
         ax.text(
             0.5, 0.5,
-            "请在单文件分析模式中处理数据\n然后点击 「📌 添加到对比」",
+            "请在单文件分析模式中处理数据\n然后点击 [添加到对比]",
             ha="center", va="center", fontsize=16,
             color=TEXT_SECONDARY, transform=ax.transAxes,
         )
@@ -35,6 +39,7 @@ def render_comparison_empty(app: TafelAnalyzerApp) -> None:
     app._app_state["ax_tafel"] = None
     app._app_state["compare_plot_default_view_state"] = None
     app._app_state["compare_plot_view_state"] = None
+    app._app_state["active_chart_mode"] = "comparison"
     app.canvas.draw_idle()
 
 
@@ -46,15 +51,12 @@ def render_comparison(
     from core.rendering import (
         apply_plot_view_state,
         capture_plot_view_state,
+        current_or_saved_plot_view_state,
         enable_draggable_legend,
     )
 
     if preserve_view_state is None:
-        preserve_view_state = (
-            capture_plot_view_state(app, app.fig)
-            if len(app.fig.axes) >= 2
-            else app._app_state.get("compare_plot_view_state")
-        )
+        preserve_view_state = current_or_saved_plot_view_state(app, "comparison")
     visible_items = [item for item in app._app_state["comparison_items"] if item.visible]
     if not visible_items:
         render_comparison_empty(app)
@@ -80,7 +82,7 @@ def render_comparison(
             prepared = item.prepared
             fit = item.fit
             color = item.color
-            label = f"{item.file_name}-第{item.segment_index + 1}段"
+            label = comparison_item_label(item)
             is_highlighted = item.item_id == highlight_id
             lw = 2.5 if is_highlighted else 1.4
             ms = 5.0 if is_highlighted else 3.0
@@ -142,6 +144,7 @@ def render_comparison(
     apply_plot_view_state(app, [ax0, ax1], preserve_view_state)
     app._app_state["ax_tafel"] = None
     app._app_state["compare_plot_view_state"] = capture_plot_view_state(app, app.fig)
+    app._app_state["active_chart_mode"] = "comparison"
     app.canvas.draw_idle()
 
 
@@ -159,7 +162,7 @@ def build_comparison_export(
         ax1 = export_fig.add_subplot(gs[1])
         for item in items:
             p, f = item.prepared, item.fit
-            item_label = f"{item.file_name}-第{item.segment_index + 1}段"
+            item_label = comparison_item_label(item)
             ax0.plot(p.e, p.j, marker="o", linestyle="-", markersize=3, linewidth=1.4, color=item.color, alpha=0.9, label=item_label)
             if f:
                 x_seg, y_seg, mask = f.x_log10_j, f.y_e, f.selected_mask

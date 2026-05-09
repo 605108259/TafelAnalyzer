@@ -8,6 +8,7 @@ from core.fitting import prepare_series, auto_tafel_fit, manual_tafel_fit
 from core.types import PreparedSeries, TafelFit
 from core.utils import parse_range_text, priority_label_to_key
 from ui.controllers.base import BaseAppController
+from ui.controllers.worker_utils import stop_worker
 
 if TYPE_CHECKING:
     from ui.app import TafelAnalyzerApp
@@ -35,6 +36,7 @@ class FitWorker(QThread):
         fit_priority: str,
         eta_range,
         logj_range,
+        precomputed_segments=None,
     ):
         super().__init__()
         self.channels = channels
@@ -48,6 +50,7 @@ class FitWorker(QThread):
         self.fit_priority = fit_priority
         self.eta_range = eta_range
         self.logj_range = logj_range
+        self.precomputed_segments = precomputed_segments
 
     def run(self) -> None:
         try:
@@ -62,6 +65,7 @@ class FitWorker(QThread):
                         current_formula=self.cur_formula,
                         e_eq=self.e_eq,
                         segment_index=seg_idx,
+                        precomputed_segments=self.precomputed_segments,
                     )
                     prepared_map[seg_idx] = prepared
                 except Exception as exc:
@@ -96,6 +100,10 @@ class FittingController(BaseAppController):
     def __init__(self, app: TafelAnalyzerApp):
         super().__init__(app)
         self._worker: FitWorker | None = None
+
+    def cancel_running(self) -> None:
+        stop_worker(self._worker)
+        self._worker = None
 
     def run_fit(self) -> None:
         """Gather parameters and start background fitting for all selected segments."""
@@ -163,11 +171,7 @@ class FittingController(BaseAppController):
         pot_f, cur_f = app.toolbar.get_formulas()
 
         # Clean up previous worker
-        if self._worker and self._worker.isRunning():
-            self._worker.finished.disconnect()
-            self._worker.error.disconnect()
-            self._worker.quit()
-            self._worker.wait(3000)
+        stop_worker(self._worker)
 
         app.status_bar.setText(f"正在拟合 {len(selected_indices)} 个分段…")
         self._worker = FitWorker(
@@ -182,53 +186,44 @@ class FittingController(BaseAppController):
             fit_priority,
             eta_range,
             logj_range,
+            precomputed_segments=state.get("_precomputed_segments"),
         )
-        self._worker.finished.connect(self._on_fit_finished)
-        self._worker.error.connect(self._on_fit_error)
+        generation = app.state.operations.generation
+        self._worker.generation = generation
+        self._worker.finished.connect(self._on_fit_finished_from_worker)
+        self._worker.error.connect(self._on_fit_error_from_worker)
         self._worker.start()
 
+    def _on_fit_finished_from_worker(self, prepared_map, fit_map, error_map) -> None:
+        worker = self.sender()
+        if worker is None:
+            return
+        self._on_fit_finished(prepared_map, fit_map, error_map, worker.generation)
+
+    def _on_fit_error_from_worker(self, msg) -> None:
+        worker = self.sender()
+        if worker is None:
+            return
+        if not self.app.state.operations.is_current(worker.generation):
+            return
+        self._on_fit_error(msg)
+
     def _on_fit_finished(
-        self, prepared_map: dict, fit_map: dict, error_map: dict
+        self, prepared_map: dict, fit_map: dict, error_map: dict, generation: int | None = None
     ) -> None:
         """Handle fitting completion: store results, update panels, render chart."""
         app = self.app
-        active_index = app._app_state.get("active_segment_index", 0)
-
-        # Merge results into state
-        prev_prepared = dict(app._app_state.get("prepared_by_segment", {}))
-        prev_prepared.update(prepared_map)
-        app._app_state["prepared_by_segment"] = prev_prepared
-
-        prev_fit = dict(app._app_state.get("fit_by_segment", {}))
-        prev_fit.update(fit_map)
-        app._app_state["fit_by_segment"] = prev_fit
-
-        prev_err = dict(app._app_state.get("fit_error_by_segment", {}))
-        prev_err.update(error_map)
-        app._app_state["fit_error_by_segment"] = prev_err
-
-        # Set primary prepared/fit from active segment
-        active_prepared = prepared_map.get(active_index)
-        if active_prepared is None and prepared_map:
-            active_prepared = next(iter(prepared_map.values()))
-        app._app_state["prepared"] = active_prepared
-        app._app_state["fit"] = fit_map.get(
-            active_prepared.segment.index if active_prepared else active_index
+        if not app.state.operations.is_current(generation):
+            return
+        active_prepared = app.state.analysis.merge_fit_results(
+            prepared_map=prepared_map,
+            fit_map=fit_map,
+            error_map=error_map,
         )
 
-        # Update segment panel with fit results
-        app.file_segment_panel.update_segment_state(
-            active_index=active_index,
-            checked_indices=set(app._app_state.get("selected_segment_indices", [])),
-            colors=app._app_state.get("segment_colors", {}),
-            fit_by_segment=app._app_state.get("fit_by_segment", {}),
-        )
-
-        # Render chart
-        from core.rendering import draw
-
+        app.views.refresh_segments()
         if active_prepared is not None:
-            draw(app, active_prepared, fit_map.get(active_prepared.segment.index))
+            app.views.render_single()
 
         # Status summary
         success_count = len(fit_map)
@@ -257,7 +252,10 @@ class FittingController(BaseAppController):
             return
         if app._app_state.get("_fitting_lock"):
             return
-        app._app_state["manual_mode"] = True
+        app.state.interaction.enable_manual(
+            path=app.state.files.current_path,
+            generation=app.state.operations.generation,
+        )
         app.status_bar.setText("已进入手动框选模式，在右侧 Tafel 图上框选拟合区域")
         if app._app_state.get("prepared") is not None:
             from core.rendering import refresh_selector
@@ -267,18 +265,26 @@ class FittingController(BaseAppController):
 
     def disable_manual_mode(self) -> None:
         app = self.app
-        app._app_state["manual_mode"] = False
+        app.state.interaction.disable_manual()
         from PySide6.QtGui import QCursor
         app.canvas.setCursor(QCursor(Qt.ArrowCursor))
-        from core.rendering import refresh_selector
-        refresh_selector(app)
+        from core.rendering import destroy_selector
+        destroy_selector(app)
         if hasattr(app, "toolbar"):
             app.toolbar.clear_nav_mode()
 
     def on_manual_select(self, eclick, erelease) -> None:
         """Handle RectangleSelector callback for manual fitting mode."""
         app = self.app
-        if not app._app_state.get("manual_mode") or app._app_state.get("prepared") is None:
+        if app._app_state.get("prepared") is None:
+            return
+        if not app.state.interaction.manual_is_current(
+            path=app.state.files.current_path,
+            generation=app.state.operations.generation,
+        ):
+            return
+        current_ax = app._app_state.get("ax_tafel")
+        if current_ax is None or eclick.inaxes is not current_ax or erelease.inaxes is not current_ax:
             return
         coords = (eclick.xdata, erelease.xdata, eclick.ydata, erelease.ydata)
         if any(v is None for v in coords):
@@ -302,7 +308,25 @@ class FittingController(BaseAppController):
             except ValueError:
                 logj_range = None
 
-            prepared = app._app_state["prepared"]
+            active_index = int(app._app_state.get("active_segment_index", 0))
+            prepared = app._app_state.get("prepared_by_segment", {}).get(active_index)
+            if prepared is None:
+                try:
+                    e_eq = float(params.get("e_eq", "") or 0.0)
+                except ValueError:
+                    app.status_bar.setText("E_eq 格式错误")
+                    return
+                pot_f, cur_f = app.toolbar.get_formulas()
+                prepared = prepare_series(
+                    app._app_state["channels"],
+                    potential_formula=pot_f,
+                    current_formula=cur_f,
+                    e_eq=e_eq,
+                    segment_index=active_index,
+                )
+                app._app_state.setdefault("prepared_by_segment", {})[active_index] = prepared
+            app._app_state["prepared"] = prepared
+            app._app_state["fit"] = app._app_state.get("fit_by_segment", {}).get(active_index)
             fit = manual_tafel_fit(
                 prepared.eta, prepared.j,
                 x_min=float(eclick.xdata), x_max=float(erelease.xdata),
@@ -310,12 +334,7 @@ class FittingController(BaseAppController):
                 eta_range=eta_range, logj_range=logj_range,
                 min_r2=min_r2,
             )
-            active_index = int(app._app_state.get(
-                "active_segment_index", prepared.segment.index
-            ))
-            app._app_state["fit_by_segment"][active_index] = fit
-            app._app_state["fit_error_by_segment"].pop(active_index, None)
-            app._app_state["fit"] = fit
+            app.state.analysis.apply_manual_fit(segment_index=active_index, fit=fit)
 
             draw(app, prepared, fit, preserve_view_state=limits)
             app.status_bar.setText(

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core.types import COMPARISON_COLORS
+from ui.state import DEFAULT_SCHEME_NAME, normalize_palette_scheme_name
 
 if TYPE_CHECKING:
     from ui.app import TafelAnalyzerApp
@@ -53,8 +54,7 @@ def _default_segment_color(index: int) -> str:
 
 
 def _normalize_palette_scheme_name(name: str | None) -> str:
-    text = str(name or "").strip()
-    return text or "默认方案"
+    return normalize_palette_scheme_name(name)
 
 
 def _deserialize_segment_colors(raw: dict | None) -> dict[int, str]:

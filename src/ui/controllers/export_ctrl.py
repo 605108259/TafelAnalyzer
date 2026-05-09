@@ -7,6 +7,7 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from ui.controllers.base import BaseAppController
+from ui.controllers.worker_utils import stop_worker
 
 if TYPE_CHECKING:
     from ui.app import TafelAnalyzerApp
@@ -76,10 +77,7 @@ class ExportController(BaseAppController):
         if path is None:
             return
 
-        export_name = (
-            app._app_state.get("file_ui_cache", {}).get(str(path), {}).get("file_alias")
-            or path.stem
-        )
+        export_name = app.state.files.display_name(path)
         default_name = f"{export_name}_tafel.txt"
 
         file_path, _ = QFileDialog.getSaveFileName(
@@ -117,18 +115,12 @@ class ExportController(BaseAppController):
             return
 
         file_name_map = {
-            str(p): (
-                app._app_state.get("file_ui_cache", {}).get(str(p), {}).get("file_alias")
-                or p.stem
-            )
+            str(p): app.state.files.display_name(p)
             for p in app._app_state.get("selected_paths", [])
         }
 
         # Clean up previous worker
-        if self._batch_worker and self._batch_worker.isRunning():
-            self._batch_worker.finished.disconnect()
-            self._batch_worker.quit()
-            self._batch_worker.wait(3000)
+        stop_worker(self._batch_worker)
 
         app.status_bar.setText("正在批量导出…")
         self._batch_worker = BatchExportWorker(
