@@ -113,14 +113,11 @@ def evaluate_formula(
     except SyntaxError as exc:
         raise ValueError(f"公式语法错误：{normalized}") from exc
     values = _ast_eval(parsed, env)
-    if np.isscalar(values):
-        values_array = np.full(min_length, float(values), dtype=float)
-    else:
-        values_array = np.asarray(values, dtype=float).ravel()
-        if values_array.size == 1:
-            values_array = np.full(min_length, float(values_array[0]), dtype=float)
-        elif values_array.size != min_length:
-            raise ValueError("公式结果长度与 channel 长度不一致")
+    values_array = np.asarray(values, dtype=float).ravel()
+    if values_array.size == 1:
+        values_array = np.full(min_length, float(values_array[0]), dtype=float)
+    elif values_array.size != min_length:
+        raise ValueError("公式结果长度与 channel 长度不一致")
     return FormulaResult(
         values=values_array,
         formula=normalized,

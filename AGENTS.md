@@ -53,7 +53,7 @@ Three layers, strictly separated:
 - **Controller pattern**: Controllers hold `app` reference for state access, wire signals from widgets to actions, no UI code in controllers
 - **App state**: Single `_app_state: dict` on `TafelAnalyzerApp` — all shared state lives here, accessible via `self.app._app_state`
 - **matplotlib backend**: `QtAgg` (PySide6)
-- **No tests exist** — no test framework, no test files, no coverage tooling
+- **Tests exist** — run `python -m pytest`; current coverage is focused on core logic and selected UI state helpers, with limited GUI workflow coverage
 
 ## Project Structure
 

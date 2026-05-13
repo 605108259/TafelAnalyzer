@@ -70,7 +70,7 @@ def render_comparison(
 
     app.fig.clear()
     with matplotlib.rc_context(MPL_RC):
-        gs = app.fig.add_gridspec(1, 2, wspace=0.28, left=0.07, right=0.97, top=0.92, bottom=0.12)
+        gs = app.fig.add_gridspec(1, 2, wspace=0.30, left=0.10, right=0.97, top=0.92, bottom=0.12)
         ax0 = app.fig.add_subplot(gs[0])
         ax1 = app.fig.add_subplot(gs[1])
 
@@ -131,12 +131,12 @@ def render_comparison(
         ax0.set_ylabel(ref.j_label, fontsize=11)
         ax0.set_title("电化学数据对比", fontsize=12, color=TEXT_PRIMARY, pad=8)
         ax0.grid(True)
-        legend0 = ax0.legend(fontsize=8, loc="best")
+        legend0 = ax0.legend(fontsize=8, loc="upper right")
         ax1.set_xlabel("log10(|j|)", fontsize=11)
         ax1.set_ylabel(ref.tafel_y_label, fontsize=11)
         ax1.set_title("Tafel 斜率对比", fontsize=12, color=TEXT_PRIMARY, pad=8)
         ax1.grid(True)
-        legend1 = ax1.legend(fontsize=8, loc="best")
+        legend1 = ax1.legend(fontsize=8, loc="upper right")
         enable_draggable_legend(legend0)
         enable_draggable_legend(legend1)
 
@@ -157,7 +157,7 @@ def build_comparison_export(
     export_fig = Figure(figsize=(12, 5.4), dpi=150)
     export_fig.set_facecolor(card_bg)
     with matplotlib.rc_context(mpl_rc):
-        gs = export_fig.add_gridspec(1, 2, wspace=0.28, left=0.07, right=0.97, top=0.92, bottom=0.12)
+        gs = export_fig.add_gridspec(1, 2, wspace=0.30, left=0.10, right=0.97, top=0.92, bottom=0.12)
         ax0 = export_fig.add_subplot(gs[0])
         ax1 = export_fig.add_subplot(gs[1])
         for item in items:
@@ -177,12 +177,12 @@ def build_comparison_export(
         ax0.set_ylabel(ref.j_label, fontsize=11)
         ax0.set_title("电化学数据对比", fontsize=12, pad=8)
         ax0.grid(True)
-        ax0.legend(fontsize=8, loc="best")
+        ax0.legend(fontsize=8, loc="upper right")
         ax1.set_xlabel("log10(|j|)", fontsize=11)
         ax1.set_ylabel(ref.tafel_y_label, fontsize=11)
         ax1.set_title("Tafel 斜率对比", fontsize=12, pad=8)
         ax1.grid(True)
-        ax1.legend(fontsize=8, loc="best")
+        ax1.legend(fontsize=8, loc="upper right")
 
     summary_lines = [
         "跨文件 Tafel 对比汇总",

@@ -26,8 +26,8 @@ class ColorSwatch(QPushButton):
         self._index = index
         self._hex = hex_color
         self.setFixedSize(72, 28)
-        self.setFocusPolicy(Qt.NoFocus)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(f"{index + 1}: {hex_color}")
         self._update_style()
         self.clicked.connect(lambda: self.color_clicked.emit(self._index, self._hex))
@@ -47,7 +47,7 @@ class ColorSwatch(QPushButton):
 
 class ColorRow(QWidget):
     color_changed = Signal(int, str)
-    selected = Signal(int)
+    selected = Signal(int, int)
 
     def __init__(self, index: int, hex_color: str, _segment_name: str):
         super().__init__()
@@ -55,15 +55,15 @@ class ColorRow(QWidget):
         self._hex = normalize_hex_color(hex_color)
         self._selected = False
         self.setObjectName("PaletteColorRow")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(8)
 
         self.index_label = QLabel(str(index + 1))
-        self.index_label.setAlignment(Qt.AlignCenter)
+        self.index_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.index_label.setFixedWidth(28)
         self.index_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px; font-weight: 600;")
         self.index_label.installEventFilter(self)
@@ -71,7 +71,6 @@ class ColorRow(QWidget):
 
         self.swatch = ColorSwatch(index, self._hex)
         self.swatch.installEventFilter(self)
-        self.swatch.color_clicked.connect(self._pick_color)
         layout.addWidget(self.swatch)
 
         self.hex_edit = QLineEdit(self._hex)
@@ -107,7 +106,7 @@ class ColorRow(QWidget):
         )
 
     def mousePressEvent(self, event) -> None:
-        self.selected.emit(self._index)
+        self.selected.emit(self._index, self._event_modifiers(event))
         super().mousePressEvent(event)
 
     def eventFilter(self, obj, event):
@@ -120,15 +119,14 @@ class ColorRow(QWidget):
             )
             if widget is not None
         }
-        if obj in watched and event.type() in {
-            event.Type.FocusIn,
-            event.Type.MouseButtonPress,
-        }:
-            self.selected.emit(self._index)
+        # 只在鼠标按下时更新选中，避免 FocusIn 导致焦点切换时选中项乱跳
+        if obj in watched and event.type() == event.Type.MouseButtonPress:
+            self.selected.emit(self._index, self._event_modifiers(event))
         return super().eventFilter(obj, event)
 
-    def _pick_color(self, index: int, current_hex: str) -> None:
-        self.selected.emit(index)
+    def _event_modifiers(self, event) -> int:
+        modifiers = event.modifiers()
+        return int(modifiers.value if hasattr(modifiers, "value") else modifiers)
 
     def _commit_hex(self) -> None:
         text = self.hex_edit.text().strip()
@@ -150,9 +148,9 @@ class PaletteSidebar(QWidget):
     delete_scheme_clicked = Signal(str)   # name
     color_move_requested = Signal(int, int)  # index, delta
     color_add_requested = Signal(int)
-    color_remove_requested = Signal(int)
-    colors_reverse_requested = Signal()
-    colors_gradient_requested = Signal()
+    color_remove_requested = Signal(list)
+    colors_reverse_requested = Signal(list)
+    colors_gradient_requested = Signal(list)
     default_reset_requested = Signal()
     color_selected = Signal(int)
 
@@ -182,7 +180,7 @@ class PaletteSidebar(QWidget):
             btn = QToolButton()
             btn.setText(text)
             btn.setToolTip(tip)
-            btn.setCursor(Qt.PointingHandCursor)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(
                 ICON_BUTTON_STYLE
                 + (f"QToolButton {{ color: {DANGER}; }}" if danger else f"QToolButton {{ color: {TEXT_SECONDARY}; }}")
@@ -193,9 +191,9 @@ class PaletteSidebar(QWidget):
         toolbar.addWidget(tool_btn("↑", "上移当前颜色", lambda: self.color_move_requested.emit(self._selected_index, -1)))
         toolbar.addWidget(tool_btn("↓", "下移当前颜色", lambda: self.color_move_requested.emit(self._selected_index, 1)))
         toolbar.addWidget(tool_btn("+", "在当前颜色后添加", lambda: self.color_add_requested.emit(self._selected_index)))
-        toolbar.addWidget(tool_btn("-", "删除当前颜色", lambda: self.color_remove_requested.emit(self._selected_index), danger=True))
-        toolbar.addWidget(tool_btn("↔", "反转颜色顺序", self.colors_reverse_requested.emit))
-        toolbar.addWidget(tool_btn("渐", "按首尾颜色渐变填充", self.colors_gradient_requested.emit))
+        toolbar.addWidget(tool_btn("-", "删除选中颜色", lambda: self.color_remove_requested.emit(self.selected_indices()), danger=True))
+        toolbar.addWidget(tool_btn("↔", "反转选中颜色顺序", lambda: self.colors_reverse_requested.emit(self.selected_indices())))
+        toolbar.addWidget(tool_btn("渐", "按选中颜色的首尾渐变填充", lambda: self.colors_gradient_requested.emit(self.selected_indices())))
         layout.addLayout(toolbar)
 
         # Gradient preview
@@ -225,19 +223,19 @@ class PaletteSidebar(QWidget):
         # Action buttons
         btn_apply = QPushButton("保存方案")
         btn_apply.setStyleSheet(ACCENT_BUTTON_STYLE)
-        btn_apply.setCursor(Qt.PointingHandCursor)
+        btn_apply.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_apply.clicked.connect(self.apply_to_current_clicked.emit)
         layout.addWidget(btn_apply)
 
         btn_save = QPushButton("另存为新方案")
         btn_save.setStyleSheet(BUTTON_STYLE)
-        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_save.clicked.connect(self._on_save_as_new)
         layout.addWidget(btn_save)
 
         btn_delete = QPushButton("删除方案")
         btn_delete.setStyleSheet(DANGER_BUTTON_STYLE)
-        btn_delete.setCursor(Qt.PointingHandCursor)
+        btn_delete.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_delete.clicked.connect(self._on_delete)
         layout.addWidget(btn_delete)
 
@@ -245,6 +243,8 @@ class PaletteSidebar(QWidget):
         self._rows: list[ColorRow] = []
         self._scheme_names: list[str] = []
         self._selected_index = 0
+        self._selected_indices: set[int] = {0}
+        self._anchor_index = 0
 
     def set_schemes(self, schemes: list[str], active: str) -> None:
         self._scheme_names = schemes
@@ -270,8 +270,25 @@ class PaletteSidebar(QWidget):
 
         self.swatch_layout.addStretch()
         self._selected_index = min(self._selected_index, max(len(self._rows) - 1, 0))
+        self._selected_indices = {
+            idx for idx in self._selected_indices
+            if 0 <= idx < len(self._rows)
+        } or {self._selected_index}
+        self._anchor_index = min(self._anchor_index, max(len(self._rows) - 1, 0))
         self._sync_row_selection()
         self._update_gradient(colors)
+
+    def update_color(self, index: int, hex_color: str) -> None:
+        """Update one existing row without rebuilding the list.
+
+        Rebuilding during QLineEdit focus changes can make the next mouse press
+        land on a different freshly-created row, which looks like selection
+        jumping. Keep the edited row in place instead.
+        """
+        if not (0 <= int(index) < len(self._rows)):
+            return
+        self._rows[int(index)].set_color(hex_color)
+        self._update_gradient([row._hex for row in self._rows])
 
     def _on_color_changed(self, index: int, new_hex: str):
         self._select_index(index)
@@ -279,18 +296,36 @@ class PaletteSidebar(QWidget):
         all_colors = [row._hex for row in self._rows]
         self._update_gradient(all_colors)
 
-    def _select_index(self, index: int, *, notify: bool = True) -> None:
+    def _select_index(self, index: int, modifiers: int = 0, *, notify: bool = True) -> None:
         if not self._rows:
             self._selected_index = 0
+            self._selected_indices = set()
             return
         self._selected_index = max(0, min(int(index), len(self._rows) - 1))
+        ctrl = bool(modifiers & int(Qt.KeyboardModifier.ControlModifier.value))
+        shift = bool(modifiers & int(Qt.KeyboardModifier.ShiftModifier.value))
+        if shift:
+            start, end = sorted((self._anchor_index, self._selected_index))
+            self._selected_indices = set(range(start, end + 1))
+        elif ctrl:
+            if self._selected_index in self._selected_indices and len(self._selected_indices) > 1:
+                self._selected_indices.remove(self._selected_index)
+            else:
+                self._selected_indices.add(self._selected_index)
+            self._anchor_index = self._selected_index
+        else:
+            self._selected_indices = {self._selected_index}
+            self._anchor_index = self._selected_index
         self._sync_row_selection()
         if notify:
             self.color_selected.emit(self._selected_index)
 
     def _sync_row_selection(self) -> None:
         for row in self._rows:
-            row.set_selected(row._index == self._selected_index)
+            row.set_selected(row._index in self._selected_indices)
+
+    def selected_indices(self) -> list[int]:
+        return sorted(idx for idx in self._selected_indices if 0 <= idx < len(self._rows))
 
     def _update_gradient(self, colors: list[str]):
         if not colors:
@@ -314,9 +349,9 @@ class PaletteSidebar(QWidget):
             return
         confirm = QMessageBox.question(
             self, "确认删除", f"确定要删除方案 \"{name}\" 吗？",
-            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if confirm == QMessageBox.Yes:
+        if confirm == QMessageBox.StandardButton.Yes:
             self.delete_scheme_clicked.emit(name)
 
     def get_active_scheme(self) -> str:

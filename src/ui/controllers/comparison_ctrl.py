@@ -25,7 +25,7 @@ class ComparisonController(BaseAppController):
         path = state.files.current_path
         if not path:
             return
-        checked = set(state.segments.selected_indices)
+        checked = {int(index) for index in state.segments.selected_indices}
         prepared_by = app._app_state.get("prepared_by_segment", {})
         fit_by = app._app_state.get("fit_by_segment", {})
         if not checked:
@@ -60,6 +60,8 @@ class ComparisonController(BaseAppController):
             QMessageBox.warning(app, "提示", "勾选的分段已在对比列表中")
             return
         self.refresh_list()
+        if hasattr(app, "files"):
+            app.files.schedule_project_autosave()
 
     def add_all_processed(self) -> None:
         app = self.app
@@ -91,14 +93,18 @@ class ComparisonController(BaseAppController):
                 visible=True,
             ))
         self.refresh_list()
+        if hasattr(app, "files"):
+            app.files.schedule_project_autosave()
 
     def delete_selected(self) -> None:
         self.app.state.comparison.delete_highlighted()
         self.refresh_list()
+        self._autosave_project()
 
     def remove_by_id(self, item_id: str) -> None:
         self.app.state.comparison.remove(item_id)
         self.refresh_list()
+        self._autosave_project()
 
     def highlight_item(self, row: int) -> None:
         self.app.state.comparison.set_highlight(row)
@@ -108,22 +114,27 @@ class ComparisonController(BaseAppController):
     def move_up(self) -> None:
         self.app.state.comparison.move_highlight(-1)
         self.refresh_list()
+        self._autosave_project()
 
     def move_down(self) -> None:
         self.app.state.comparison.move_highlight(1)
         self.refresh_list()
+        self._autosave_project()
 
     def clear_all(self) -> None:
         self.app.state.comparison.clear()
         self.refresh_list()
+        self._autosave_project()
 
     def toggle_visibility(self, item_id: str, visible: bool) -> None:
         self.app.state.comparison.set_visible(item_id, visible)
         self._rerender()
+        self._autosave_project()
 
     def update_color(self, item_id: str, color: str) -> None:
         self.app.state.comparison.set_color(item_id, color)
         self.refresh_list()
+        self._autosave_project()
 
     def rename(self, item_id: str, new_name: str) -> None:
         item = self.app.state.comparison.item_by_id(item_id)
@@ -138,6 +149,8 @@ class ComparisonController(BaseAppController):
         else:
             self.app.status_bar.setText("重命名失败: 未找到对比项")
         self._rerender()
+        if display_name:
+            self._autosave_project()
 
     def refresh_list(self) -> None:
         self.app.views.refresh_comparison_list()
@@ -151,3 +164,7 @@ class ComparisonController(BaseAppController):
     def _rerender(self) -> None:
         if self.app.state.comparison_mode:
             self.app.views.render_comparison()
+
+    def _autosave_project(self) -> None:
+        if hasattr(self.app, "files"):
+            self.app.files.schedule_project_autosave()

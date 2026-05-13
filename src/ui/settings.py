@@ -35,6 +35,7 @@ def _resolve_app_settings_path() -> Path:
 
 
 APP_SETTINGS_PATH = _resolve_app_settings_path()
+HISTORY_CACHE_DIR = APP_SETTINGS_PATH.parent / "history_cache"
 
 
 # ── Palette helpers (tkinter-free) ───────────────────────────────────
@@ -75,10 +76,20 @@ def _deserialize_segment_colors(raw: dict | None) -> dict[int, str]:
 
 
 def _serialize_segment_colors(color_map: dict[int, str]) -> dict[str, str]:
+    normalized: dict[int, str] = {}
+    for raw_index, raw_color in color_map.items():
+        color = _normalize_color_value(raw_color)
+        if color is None:
+            continue
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            continue
+        if index >= 0:
+            normalized[index] = color
     return {
-        str(index): color
-        for index, color in sorted(color_map.items())
-        if _normalize_color_value(color) is not None
+        str(index): normalized[index]
+        for index in sorted(normalized)
     }
 
 
@@ -124,15 +135,18 @@ def _normalize_palette_scheme_slot_counts(
 def _materialize_palette_scheme(
     app: TafelAnalyzerApp,
     scheme_name: str,
-) -> dict[int, str]:
+) -> dict[str, str]:
     scheme_name = _normalize_palette_scheme_name(scheme_name)
     schemes = app._app_state.setdefault("palette_schemes", {})
-    colors = dict(schemes.get(scheme_name, {}))
+    colors = {
+        str(index): color
+        for index, color in _deserialize_segment_colors(schemes.get(scheme_name, {})).items()
+    }
     slot_counts = app._app_state.get("palette_scheme_slot_counts", {})
     slot_count = slot_counts.get(scheme_name, 8)
     for index in range(slot_count):
-        if index not in colors:
-            colors[index] = _default_segment_color(index)
+        if str(index) not in colors:
+            colors[str(index)] = _default_segment_color(index)
     schemes[scheme_name] = colors
     slot_counts[scheme_name] = max(slot_count, len(colors))
     return colors
@@ -166,33 +180,120 @@ def normalize_parameter_settings(raw: dict | None) -> dict[str, str]:
     return settings
 
 
+def normalize_file_history(raw: list | None, *, limit: int = 80) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def normalize_project_history(raw: list | None, *, limit: int = 80) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+    result: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        cache_path = str(item.get("cache_path") or "").strip()
+        if not cache_path or cache_path in seen:
+            continue
+        seen.add(cache_path)
+        result.append({
+            "id": str(item.get("id") or cache_path),
+            "title": str(item.get("title") or "未命名项目"),
+            "updated_at": str(item.get("updated_at") or ""),
+            "cache_path": cache_path,
+            "files": [str(path) for path in item.get("files", []) if str(path).strip()],
+        })
+        if len(result) >= limit:
+            break
+    return result
+
+
+def load_project_history_from_cache_dir(*, limit: int = 80) -> list[dict]:
+    if not HISTORY_CACHE_DIR.exists():
+        return []
+    entries: list[dict] = []
+    for cache_path in HISTORY_CACHE_DIR.glob("*.json"):
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+        files = [str(path) for path in payload.get("selected_paths", []) if str(path).strip()]
+        current_path = str(payload.get("current_path") or "").strip()
+        title = cache_path.stem
+        if not re.match(r"^\d{4}-\d{2}-\d{2} ", title) and current_path:
+            title = Path(current_path).stem
+        try:
+            updated_at = cache_path.stat().st_mtime
+        except OSError:
+            updated_at = 0
+        entries.append({
+            "id": cache_path.stem,
+            "title": title,
+            "updated_at": updated_at,
+            "cache_path": str(cache_path),
+            "files": files,
+        })
+    entries.sort(key=lambda item: item.get("updated_at", 0), reverse=True)
+    normalized: list[dict] = []
+    for item in entries[:limit]:
+        timestamp = item.get("updated_at", 0)
+        updated_text = ""
+        if timestamp:
+            from datetime import datetime
+            updated_text = datetime.fromtimestamp(float(timestamp)).strftime("%Y-%m-%d %H:%M:%S")
+        normalized.append({
+            "id": str(item.get("id") or item.get("cache_path")),
+            "title": str(item.get("title") or "未命名项目"),
+            "updated_at": updated_text,
+            "cache_path": str(item.get("cache_path")),
+            "files": list(item.get("files", [])),
+        })
+    return normalized
+
+
 # ── Load / Save ──────────────────────────────────────────────────────
 
 
 def load_app_settings(app: TafelAnalyzerApp) -> None:
+    payload = {}
     try:
-        if not APP_SETTINGS_PATH.exists():
-            return
-        payload = json.loads(APP_SETTINGS_PATH.read_text(encoding="utf-8"))
+        if APP_SETTINGS_PATH.exists():
+            payload = json.loads(APP_SETTINGS_PATH.read_text(encoding="utf-8"))
     except Exception:
-        return
+        payload = {}
 
-    app._app_state["palette_schemes"] = _normalize_palette_schemes(
-        payload.get("palette_schemes", {}),
-        payload.get("saved_segment_palette", {}),
+    if payload:
+        app._app_state["palette_schemes"] = _normalize_palette_schemes(
+            payload.get("palette_schemes", {}),
+            payload.get("saved_segment_palette", {}),
+        )
+        app._app_state["palette_scheme_slot_counts"] = _normalize_palette_scheme_slot_counts(
+            payload.get("palette_scheme_slot_counts", {}),
+            app._app_state["palette_schemes"],
+        )
+        for scheme_name in list(app._app_state["palette_schemes"].keys()):
+            _materialize_palette_scheme(app, scheme_name)
+        app._app_state["active_palette_scheme"] = _normalize_palette_scheme_name(
+            payload.get("active_palette_scheme")
+        )
+    project_history = normalize_project_history(
+        payload.get("project_history", payload.get("file_history", []))
     )
-    app._app_state["palette_scheme_slot_counts"] = _normalize_palette_scheme_slot_counts(
-        payload.get("palette_scheme_slot_counts", {}),
-        app._app_state["palette_schemes"],
-    )
-    for scheme_name in list(app._app_state["palette_schemes"].keys()):
-        _materialize_palette_scheme(app, scheme_name)
-    app._app_state["active_palette_scheme"] = _normalize_palette_scheme_name(
-        payload.get("active_palette_scheme")
-    )
-    app._app_state["saved_parameter_defaults"] = normalize_parameter_settings(
-        payload.get("saved_parameter_defaults", {})
-    )
+    if not project_history:
+        project_history = load_project_history_from_cache_dir()
+    app._app_state["project_history"] = project_history
 
 
 def save_app_settings(app: TafelAnalyzerApp) -> None:
@@ -210,8 +311,8 @@ def save_app_settings(app: TafelAnalyzerApp) -> None:
         "active_palette_scheme": _normalize_palette_scheme_name(
             app._app_state.get("active_palette_scheme")
         ),
-        "saved_parameter_defaults": normalize_parameter_settings(
-            app._app_state.get("saved_parameter_defaults", {})
+        "project_history": normalize_project_history(
+            app._app_state.get("project_history", [])
         ),
     }
     APP_SETTINGS_PATH.write_text(

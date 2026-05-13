@@ -27,11 +27,11 @@ class RenameLineEdit(QLineEdit):
         super().focusOutEvent(event)
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.commit_requested.emit()
             event.accept()
             return
-        if event.key() == Qt.Key_Escape:
+        if event.key() == Qt.Key.Key_Escape:
             self.cancel_requested.emit()
             event.accept()
             return
@@ -48,7 +48,8 @@ class ComparisonItemWidget(QWidget):
     row_clicked = Signal()                   # emitted on any left-click
 
     def __init__(self, item_id: str, display_name: str,
-                 color: str, visible: bool):
+                 color: str, visible: bool,
+                 file_name: str = "", segment_index: int = -1):
         super().__init__()
         self.setObjectName("ComparisonItem")
         self.item_id = item_id
@@ -58,10 +59,17 @@ class ComparisonItemWidget(QWidget):
         self._highlighted = False
         self._editing = False
 
+        if file_name:
+            tip = file_name
+            if segment_index >= 0:
+                tip += f" — 第{segment_index + 1}段"
+            self.setToolTip(tip)
+            self.setToolTipDuration(10000)
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(4)
-        layout.setAlignment(Qt.AlignVCenter)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.cb = CheckmarkBox(visible)
         self.cb.stateChanged.connect(
@@ -90,14 +98,19 @@ class ComparisonItemWidget(QWidget):
         self.color_btn = QPushButton()
         self.color_btn.setFixedSize(20, 20)
         self.color_btn.setStyleSheet(swatch_button_style(color, radius=10, border_width=2))
-        self.color_btn.setCursor(Qt.PointingHandCursor)
+        self.color_btn.setToolTip("更改颜色")
+        self.color_btn.setStatusTip("更改颜色")
+        self.color_btn.setToolTipDuration(5000)
+        self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.color_btn.clicked.connect(lambda: self.color_clicked.emit(item_id))
         layout.addWidget(self.color_btn)
 
         self.rm_btn = QToolButton()
         self.rm_btn.setIcon(line_icon("x", color=TEXT_SECONDARY, size=14))
         self.rm_btn.setToolTip("移除")
-        self.rm_btn.setCursor(Qt.PointingHandCursor)
+        self.rm_btn.setStatusTip("移除")
+        self.rm_btn.setToolTipDuration(5000)
+        self.rm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rm_btn.setStyleSheet(ICON_BUTTON_STYLE)
         self.rm_btn.clicked.connect(lambda: self.remove_clicked.emit(item_id))
         layout.addWidget(self.rm_btn)
@@ -113,7 +126,7 @@ class ComparisonItemWidget(QWidget):
     def begin_rename(self) -> None:
         self._editing = True
         self.name_edit.setReadOnly(False)
-        self.name_edit.setFocus(Qt.MouseFocusReason)
+        self.name_edit.setFocus(Qt.FocusReason.MouseFocusReason)
         self.name_edit.selectAll()
 
     def _commit_rename(self):
@@ -160,17 +173,17 @@ class ComparisonItemWidget(QWidget):
         if obj is self.name_edit and event.type() == QEvent.Type.FocusOut:
             self._commit_rename()
         # Forward single clicks on child widgets to trigger highlight
-        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.LeftButton:
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
             self.row_clicked.emit()
         return super().eventFilter(obj, event)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.row_clicked.emit()
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.begin_rename()
             event.accept()
             return
@@ -200,7 +213,7 @@ class ComparisonPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("SidePanel")
-        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
         self.setStyleSheet(PANEL_STYLE)
         self._highlighted_row = -1
 
@@ -223,7 +236,10 @@ class ComparisonPanel(QWidget):
             btn = QToolButton()
             btn.setIcon(line_icon(name, color=TEXT_PRIMARY, size=16))
             btn.setToolTip(tip)
-            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStatusTip(tip)
+            btn.setAccessibleName(tip)
+            btn.setToolTipDuration(5000)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(ICON_BUTTON_STYLE)
             btn.clicked.connect(sig.emit)
             header.addWidget(btn)
@@ -249,7 +265,7 @@ class ComparisonPanel(QWidget):
 
         btn_apply = QPushButton("应用")
         btn_apply.setStyleSheet(SMALL_BUTTON_STYLE)
-        btn_apply.setCursor(Qt.PointingHandCursor)
+        btn_apply.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_apply.clicked.connect(
             lambda: self.palette_apply_clicked.emit(self.palette_apply_mode.currentData() or "sequential")
         )
@@ -258,8 +274,11 @@ class ComparisonPanel(QWidget):
         btn_manage = QToolButton()
         btn_manage.setIcon(line_icon("gear", color=TEXT_SECONDARY, size=14))
         btn_manage.setToolTip("管理配色方案")
+        btn_manage.setStatusTip("管理配色方案")
+        btn_manage.setAccessibleName("管理配色方案")
+        btn_manage.setToolTipDuration(5000)
         btn_manage.setStyleSheet(ICON_BUTTON_STYLE)
-        btn_manage.setCursor(Qt.PointingHandCursor)
+        btn_manage.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_manage.clicked.connect(self.palette_manage_clicked.emit)
         palette_row.addWidget(btn_manage)
 
@@ -267,7 +286,7 @@ class ComparisonPanel(QWidget):
 
         # Item list
         self.item_list = QListWidget()
-        self.item_list.setSelectionMode(QListWidget.NoSelection)
+        self.item_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self.item_list.setStyleSheet(
             f"QListWidget {{ border: none; background: transparent; outline: none; }}"
             f"QListWidget::item {{ background: transparent; padding: 0px; }}"
@@ -292,6 +311,8 @@ class ComparisonPanel(QWidget):
             widget = ComparisonItemWidget(
                 data["item_id"], data.get("edit_name") or data["display_name"],
                 data["color"], data["visible"],
+                file_name=data.get("file_name", ""),
+                segment_index=data.get("segment_index", -1),
             )
             widget.set_display_name(
                 data.get("edit_name") or data["display_name"],
@@ -313,7 +334,7 @@ class ComparisonPanel(QWidget):
         # Reapply highlight after rebuild
         if 0 <= self._highlighted_row < self.item_list.count():
             w = self.item_list.itemWidget(self.item_list.item(self._highlighted_row))
-            if w:
+            if isinstance(w, ComparisonItemWidget):
                 w.set_highlighted(True)
 
     def _clear_items(self) -> None:
@@ -338,12 +359,12 @@ class ComparisonPanel(QWidget):
         """Set which row is highlighted (visually, no selection box)."""
         if 0 <= self._highlighted_row < self.item_list.count():
             prev = self.item_list.itemWidget(self.item_list.item(self._highlighted_row))
-            if prev:
+            if isinstance(prev, ComparisonItemWidget):
                 prev.set_highlighted(False)
         self._highlighted_row = row
         if 0 <= row < self.item_list.count():
             w = self.item_list.itemWidget(self.item_list.item(row))
-            if w:
+            if isinstance(w, ComparisonItemWidget):
                 w.set_highlighted(True)
 
     def highlighted_row(self) -> int:

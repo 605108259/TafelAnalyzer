@@ -55,6 +55,10 @@ def create_initial_state() -> dict[str, Any]:
         "interaction_mode": "idle",
         "selector": None,
         "active_chart_mode": None,
+        "single_plot_view_state": None,
+        "single_plot_default_view_state": None,
+        "compare_plot_view_state": None,
+        "compare_plot_default_view_state": None,
         "comparison_mode": False,
         "comparison_items": [],
         "comparison_highlight_row": -1,
@@ -64,7 +68,13 @@ def create_initial_state() -> dict[str, Any]:
         "palette_scheme_slot_counts": {DEFAULT_SCHEME_NAME: len(COMPARISON_COLORS)},
         "active_palette_scheme": DEFAULT_SCHEME_NAME,
         "saved_parameter_defaults": {},
+        "project_history": [],
+        "current_project_id": None,
+        "current_project_title": None,
+        "current_project_cache_path": None,
         "file_ui_cache": {},
+        "file_data_cache": {},
+        "prepared_cache": {},
         "result_cache": {},
         "current_result_keys": {},
         "_op_generation": 0,
@@ -81,6 +91,7 @@ _RESULT_RESET_DEFAULTS: dict[str, Any] = {
     "prepared_by_segment": {},
     "fit_by_segment": {},
     "fit_error_by_segment": {},
+    "manual_fit_regions": {},
     "selected_segment_indices": [],
     "active_segment_index": 0,
     "single_plot_view_state": None,
@@ -309,6 +320,8 @@ class ComparisonState:
                 "segment_label": "",
                 "color": item.color,
                 "visible": item.visible,
+                "file_name": item.file_path.name,
+                "segment_index": item.segment_index,
             }
             for item in self.items
         ]
@@ -394,7 +407,7 @@ class PaletteState:
     raw: dict[str, Any]
 
     @property
-    def schemes(self) -> dict[str, dict[str, str]]:
+    def schemes(self) -> dict[str, dict[Any, str]]:
         return self.raw.setdefault("palette_schemes", {})
 
     @property
@@ -416,8 +429,17 @@ class PaletteState:
                 str(i): color for i, color in enumerate(COMPARISON_COLORS)
             }
         default = self.schemes.setdefault(DEFAULT_SCHEME_NAME, {})
+        normalized_default: dict[str, str] = {}
+        for raw_index, color in default.items():
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if index >= 0:
+                normalized_default[str(index)] = normalize_hex_color(color)
         for i, color in enumerate(COMPARISON_COLORS):
-            default[str(i)] = color
+            normalized_default.setdefault(str(i), color)
+        self.schemes[DEFAULT_SCHEME_NAME] = normalized_default
         self.slot_counts.setdefault(
             DEFAULT_SCHEME_NAME,
             len(COMPARISON_COLORS),
@@ -518,6 +540,26 @@ class PaletteState:
         colors.pop(index)
         self._replace_active_colors(colors)
 
+    def remove_colors(self, indices: list[int] | None = None) -> int:
+        colors = self.colors(self.active_name)
+        if len(colors) <= 1:
+            return 0
+        selected = sorted({
+            int(index) for index in (indices or [])
+            if 0 <= int(index) < len(colors)
+        })
+        if not selected:
+            selected = [0]
+        if len(selected) >= len(colors):
+            keep_index = selected[0]
+            self._replace_active_colors([colors[keep_index]])
+            return 0
+        for index in reversed(selected):
+            colors.pop(index)
+        new_index = min(selected[0], len(colors) - 1)
+        self._replace_active_colors(colors)
+        return new_index
+
     def move_color(self, index: int, delta: int) -> int:
         colors = self.colors(self.active_name)
         if not colors:
@@ -529,24 +571,42 @@ class PaletteState:
             self._replace_active_colors(colors)
         return target
 
-    def reverse_colors(self) -> None:
-        colors = list(reversed(self.colors(self.active_name)))
+    def reverse_colors(self, indices: list[int] | None = None) -> None:
+        colors = self.colors(self.active_name)
+        selected = sorted({
+            int(index) for index in (indices or [])
+            if 0 <= int(index) < len(colors)
+        })
+        if len(selected) < 2:
+            return
+        reversed_values = [colors[index] for index in reversed(selected)]
+        for index, color in zip(selected, reversed_values):
+            colors[index] = color
         self._replace_active_colors(colors)
 
-    def gradient_fill(self) -> None:
+    def gradient_fill(self, indices: list[int] | None = None) -> None:
         colors = self.colors(self.active_name)
-        if len(colors) < 3:
+        if len(colors) < 2:
             return
-        first = QColorCompat(colors[0])
-        last = QColorCompat(colors[-1])
-        filled: list[str] = []
-        span = len(colors) - 1
-        for i in range(len(colors)):
+        selected = sorted({
+            int(index) for index in (indices or [])
+            if 0 <= int(index) < len(colors)
+        })
+        if len(selected) < 2:
+            selected = list(range(len(colors)))
+        if len(selected) < 2:
+            return
+        first = QColorCompat(colors[selected[0]])
+        last = QColorCompat(colors[selected[-1]])
+        filled = list(colors)
+        span = len(selected) - 1
+        for position, color_index in enumerate(selected):
+            i = position
             t = i / span
             r = round(first.r + (last.r - first.r) * t)
             g = round(first.g + (last.g - first.g) * t)
             b = round(first.b + (last.b - first.b) * t)
-            filled.append(f"#{r:02x}{g:02x}{b:02x}")
+            filled[color_index] = f"#{r:02x}{g:02x}{b:02x}"
         self._replace_active_colors(filled)
 
     def _replace_active_colors(self, colors: list[str]) -> None:

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel, QToolButton
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel, QToolButton
 from PySide6.QtCore import Qt
 
-from ui.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE
-from ui.theme import BG_WINDOW, BG_CARD, TEXT_PRIMARY, TEXT_SECONDARY
+from ui.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE, PANEL_HISTORY
+from ui.theme import BG_WINDOW, BG_CARD, BORDER, TEXT_PRIMARY, TEXT_SECONDARY
 from ui.state import AppState, create_initial_state
 from ui.view_coordinator import ViewCoordinator
 
@@ -19,12 +19,14 @@ class TafelAnalyzerApp(QMainWindow):
         self.setWindowTitle("Tafel Analyzer")
         self.setMinimumSize(1220, 760)
         self.resize(1480, 900)
+        self.setAcceptDrops(True)
+        self._install_tooltip_style()
         self.setStyleSheet(f"""
             QMainWindow {{ background: {BG_WINDOW}; }}
             QToolTip {{
-                background: {TEXT_PRIMARY};
-                color: {BG_CARD};
-                border: none;
+                background-color: {BG_CARD};
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER};
                 padding: 4px 8px;
                 font-size: 11px;
                 border-radius: 4px;
@@ -48,6 +50,22 @@ class TafelAnalyzerApp(QMainWindow):
         self._build_ui()
         self.views = ViewCoordinator(self)
         self._init_controllers()
+
+    def _install_tooltip_style(self) -> None:
+        app = QApplication.instance()
+        if not isinstance(app, QApplication):
+            return
+        app.setStyleSheet(f"""
+            QToolTip {{
+                background-color: {BG_CARD};
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER};
+                padding: 4px 8px;
+                font-size: 11px;
+                border-radius: 4px;
+                opacity: 255;
+            }}
+        """)
 
     def _init_app_state(self) -> None:
         self._app_state: dict = create_initial_state()
@@ -73,6 +91,8 @@ class TafelAnalyzerApp(QMainWindow):
         entry = cache.setdefault(key, {})
         entry["potential_formula"] = pot_f
         entry["current_formula"] = cur_f
+        if hasattr(self, "files") and not self._app_state.get("_suppress_toolbar_autosave"):
+            self.files.schedule_project_autosave()
 
     def eventFilter(self, obj, event):
         if event.type() == event.Type.MouseButtonPress and hasattr(self, "toolbar") and hasattr(self, "chart"):
@@ -105,6 +125,8 @@ class TafelAnalyzerApp(QMainWindow):
                   "min_r2", "fit_priority"):
             if k in params:
                 entry[k] = params[k]
+        if hasattr(self, "files") and not self._app_state.get("_suppress_toolbar_autosave"):
+            self.files.schedule_project_autosave()
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -126,6 +148,7 @@ class TafelAnalyzerApp(QMainWindow):
         from ui.panels.file_segment import FileSegmentPanel
         from ui.panels.comparison import ComparisonPanel
         from ui.panels.palette import PaletteSidebar
+        from ui.panels.history import HistoryPanel
 
         self.file_segment_panel = FileSegmentPanel()
         self.side_stack.addWidget(self.file_segment_panel)  # index 0 = PANEL_FILES
@@ -135,6 +158,9 @@ class TafelAnalyzerApp(QMainWindow):
 
         self.palette_sidebar = PaletteSidebar()
         self.side_stack.addWidget(self.palette_sidebar)     # index 2 = PANEL_PALETTE
+
+        self.history_panel = HistoryPanel()
+        self.side_stack.addWidget(self.history_panel)       # index 3 = PANEL_HISTORY
 
         layout.addWidget(self.side_stack)
 
@@ -162,12 +188,13 @@ class TafelAnalyzerApp(QMainWindow):
         from ui.icons import line_icon
         self._comp_nav = QWidget()
         self._comp_nav.setFixedHeight(36)
-        self._comp_nav.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        self._comp_nav.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
         self._comp_nav.setStyleSheet(f"background: {BG_CARD}; border-bottom: 1px solid {BORDER};")
         self._comp_nav.hide()
         _nav = QHBoxLayout(self._comp_nav)
         _nav.setContentsMargins(8, 0, 8, 0)
         _nav.setSpacing(4)
+        _nav.addStretch()
         self._comp_nav_buttons: dict[str, QToolButton] = {}
         self._comp_active_tool: str | None = None
         active_style = (
@@ -184,8 +211,18 @@ class TafelAnalyzerApp(QMainWindow):
         ]:
             b = QToolButton()
             b.setIcon(line_icon(name, color=TEXT_PRIMARY, size=16))
-            b.setToolTip(tip)
-            b.setCursor(Qt.PointingHandCursor)
+            tooltip = {
+                "home": "复位视图",
+                "back": "后退视图",
+                "forward": "前进视图",
+                "zoom": "缩放",
+                "pan": "平移",
+            }.get(name) or str(tip or "")
+            b.setToolTip(tooltip)
+            b.setStatusTip(tooltip)
+            b.setAccessibleName(tooltip)
+            b.setToolTipDuration(5000)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setCheckable(name in {"zoom", "pan"})
             b.setStyleSheet(active_style if name in {"zoom", "pan"} else ICON_BUTTON_STYLE)
             b.clicked.connect(cb)
@@ -194,11 +231,13 @@ class TafelAnalyzerApp(QMainWindow):
         _save = QToolButton()
         _save.setIcon(line_icon("save", color=TEXT_PRIMARY, size=16))
         _save.setToolTip("保存图片")
-        _save.setCursor(Qt.PointingHandCursor)
+        _save.setStatusTip("保存图片")
+        _save.setAccessibleName("保存图片")
+        _save.setToolTipDuration(5000)
+        _save.setCursor(Qt.CursorShape.PointingHandCursor)
         _save.setStyleSheet(ICON_BUTTON_STYLE)
         _save.clicked.connect(self._save_chart_image)
         _nav.addWidget(_save)
-        _nav.addStretch()
 
         self.summary_table = SummaryTable()
         self.summary_table.setFixedHeight(140)
@@ -222,6 +261,11 @@ class TafelAnalyzerApp(QMainWindow):
         from ui.central.palette_workspace import PaletteWorkspace
         self.palette_workspace = PaletteWorkspace()
         self.right_stack.addWidget(self.palette_workspace)  # index 1
+
+        # History preview workspace
+        from ui.central.history_workspace import HistoryWorkspace
+        self.history_workspace = HistoryWorkspace()
+        self.right_stack.addWidget(self.history_workspace)  # index 2
 
         layout.addWidget(self.right_stack, stretch=1)
 
@@ -252,20 +296,80 @@ class TafelAnalyzerApp(QMainWindow):
             self.chart.nav_pan()
 
     def _on_comp_nav_home(self) -> None:
-        self._set_comp_nav_active(None)
-        self.chart.nav_home()
+        self._on_nav_home()
 
     def _on_comp_nav_back(self) -> None:
-        self._set_comp_nav_active(None)
-        self.chart.nav_back()
+        self._on_nav_back()
 
     def _on_comp_nav_forward(self) -> None:
-        self._set_comp_nav_active(None)
+        self._on_nav_forward()
+
+    def _persist_chart_view_state(self, *, autosave: bool = True) -> None:
+        from core.rendering import persist_current_plot_view_state
+
+        persist_current_plot_view_state(self)
+        if autosave and hasattr(self, "files"):
+            self.files.schedule_project_autosave()
+
+    def _on_chart_interaction_finished(self) -> None:
+        self._persist_chart_view_state()
+
+    def _on_nav_home(self) -> None:
+        if hasattr(self, "toolbar"):
+            self.toolbar.clear_nav_mode()
+        if hasattr(self, "_comp_nav_buttons"):
+            self._set_comp_nav_active(None)
+        self.chart.cancel_nav_modes()
+        from core.rendering import reset_origin_view
+
+        reset_origin_view(self)
+        self._persist_chart_view_state()
+
+    def _on_nav_back(self) -> None:
+        if hasattr(self, "toolbar"):
+            self.toolbar.clear_nav_mode()
+        if hasattr(self, "_comp_nav_buttons"):
+            self._set_comp_nav_active(None)
+        self.chart.nav_back()
+        self._persist_chart_view_state()
+
+    def _on_nav_forward(self) -> None:
+        if hasattr(self, "toolbar"):
+            self.toolbar.clear_nav_mode()
+        if hasattr(self, "_comp_nav_buttons"):
+            self._set_comp_nav_active(None)
         self.chart.nav_forward()
+        self._persist_chart_view_state()
 
     def _on_panel_clicked(self, panel_id: int) -> None:
         self.activity_bar.set_active(panel_id)
         self.views.show_panel(panel_id)
+
+    def dragEnterEvent(self, event) -> None:
+        if self._dragged_cache_path(event) is not None:
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:
+        cache_path = self._dragged_cache_path(event)
+        if cache_path is not None and hasattr(self, "files"):
+            self.files.import_cache_file(cache_path)
+            event.acceptProposedAction()
+            return
+        super().dropEvent(event)
+
+    def _dragged_cache_path(self, event) -> Path | None:
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return None
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            path = Path(url.toLocalFile())
+            if path.suffix.lower() == ".json":
+                return path
+        return None
 
     def _save_chart_image(self) -> None:
         from PySide6.QtWidgets import QFileDialog, QMessageBox
@@ -328,18 +432,19 @@ class TafelAnalyzerApp(QMainWindow):
         p.export_batch.connect(self.export_mgr.run_batch)
 
         # Wire toolbar
-        self.toolbar.fit_clicked.connect(self.fitting.run_fit)
+        self.toolbar.fit_clicked.connect(lambda: self.fitting.run_fit(force=True))
         self.toolbar.manual_clicked.connect(lambda: (self.chart.cancel_nav_modes(), self.fitting.enable_manual_mode()))
         self.toolbar.save_image_clicked.connect(self._save_chart_image)
-        self.toolbar.nav_home_clicked.connect(self.chart.nav_home)
-        self.toolbar.nav_back_clicked.connect(self.chart.nav_back)
-        self.toolbar.nav_forward_clicked.connect(self.chart.nav_forward)
+        self.toolbar.nav_home_clicked.connect(self._on_nav_home)
+        self.toolbar.nav_back_clicked.connect(self._on_nav_back)
+        self.toolbar.nav_forward_clicked.connect(self._on_nav_forward)
         self.toolbar.nav_zoom_clicked.connect(self.chart.nav_zoom)
         self.toolbar.nav_pan_clicked.connect(self.chart.nav_pan)
         self.toolbar.nav_cancel_clicked.connect(lambda: (self.chart.cancel_nav_modes(), self.fitting.disable_manual_mode() if self._app_state.get("manual_mode") else None))
 
         # Wire chart canvas outside-axes clicks
         self.chart.clicked_outside_axes.connect(self._on_chart_outside_click)
+        self.chart.interaction_finished.connect(self._on_chart_interaction_finished)
 
         # Wire comparison panel
         cp = self.comparison_panel
@@ -371,6 +476,13 @@ class TafelAnalyzerApp(QMainWindow):
         ps.default_reset_requested.connect(self.files.on_palette_default_reset)
         ps.color_selected.connect(self.palette_workspace.set_selected_index)
 
+        hp = self.history_panel
+        hp.restore_requested.connect(self.history_workspace.request_restore)
+        hp.remove_requested.connect(self.files.on_history_remove)
+        hp.clear_requested.connect(self.files.on_history_clear)
+        hp.selected_entry_changed.connect(self.history_workspace.set_entry)
+        self.history_workspace.restore_requested.connect(self.files.import_cache_file)
+
         # Wire toolbar formula/param persistence
         self.toolbar.formulas_changed.connect(self._on_formulas_changed)
         self.toolbar.params_changed.connect(self._on_params_changed)
@@ -385,3 +497,5 @@ class TafelAnalyzerApp(QMainWindow):
 
         # Initial palette controls refresh
         self.views.refresh_palette_controls()
+        self.views.refresh_file_list()
+        self.views.refresh_history_panel()

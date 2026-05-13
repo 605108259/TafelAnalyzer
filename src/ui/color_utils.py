@@ -47,7 +47,10 @@ def interpolate_hex(left: str, right: str, t: float) -> str:
     """在两个 hex 颜色间线性插值。"""
     a = hex_to_rgb(left)
     b = hex_to_rgb(right)
-    return rgb_to_hex(tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3)))
+    r = round(a[0] + (b[0] - a[0]) * t)
+    g = round(a[1] + (b[1] - a[1]) * t)
+    blue = round(a[2] + (b[2] - a[2]) * t)
+    return rgb_to_hex((r, g, blue))
 
 
 def swatch_button_style(hex_color: str, *, radius: int = 6, border_width: int = 1) -> str:

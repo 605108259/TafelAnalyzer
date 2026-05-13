@@ -62,9 +62,9 @@ class ScreenColorPickerOverlay(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setCursor(Qt.CrossCursor)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setCursor(Qt.CursorShape.CrossCursor)
         self.setMouseTracking(True)
         self._preview_color = QColor("#000000")
         self._preview_pos = QPoint(24, 24)
@@ -79,7 +79,7 @@ class ScreenColorPickerOverlay(QWidget):
         painter.setPen(QPen(QColor("#ffffff")))
         painter.drawText(
             self.rect(),
-            Qt.AlignCenter,
+            Qt.AlignmentFlag.AlignCenter,
             "点击屏幕任意位置取色 · Esc 取消",
         )
         box = QRect(self._preview_pos + QPoint(18, 18), self._preview_pos + QPoint(230, 92))
@@ -104,11 +104,11 @@ class ScreenColorPickerOverlay(QWidget):
         painter.end()
 
     def keyPressEvent(self, event) -> None:
-        if event.key() == Qt.Key_Escape:
+        if event.key() == Qt.Key.Key_Escape:
             self.close()
 
     def mousePressEvent(self, event) -> None:
-        if event.button() != Qt.LeftButton:
+        if event.button() != Qt.MouseButton.LeftButton:
             self.close()
             return
         pos = event.globalPosition().toPoint()
@@ -147,7 +147,7 @@ class ColorPalette(QWidget):
         self._value = 235
         self._image: QImage | None = None
         self.setFixedHeight(190)
-        self.setCursor(Qt.CrossCursor)
+        self.setCursor(Qt.CursorShape.CrossCursor)
 
     def set_hsv(self, hue: int, sat: int, value: int) -> None:
         hue = max(0, min(359, int(hue)))
@@ -163,7 +163,7 @@ class ColorPalette(QWidget):
         painter = QPainter(self)
         rect = self.rect()
         if self._image is None or self._image.size() != rect.size():
-            self._image = QImage(rect.size(), QImage.Format_RGB32)
+            self._image = QImage(rect.size(), QImage.Format.Format_RGB32)
             w = max(1, rect.width() - 1)
             h = max(1, rect.height() - 1)
             for y in range(rect.height()):
@@ -184,7 +184,7 @@ class ColorPalette(QWidget):
         self._pick(event.position().toPoint())
 
     def mouseMoveEvent(self, event) -> None:
-        if event.buttons() & Qt.LeftButton:
+        if event.buttons() & Qt.MouseButton.LeftButton:
             self._pick(event.position().toPoint())
 
     def _pick(self, point: QPoint) -> None:
@@ -207,7 +207,7 @@ class ValueSlider(QWidget):
         self._hue = 221
         self._sat = 215
         self.setFixedWidth(28)
-        self.setCursor(Qt.SizeVerCursor)
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
 
     def set_hsv(self, hue: int, sat: int, value: int) -> None:
         self._hue = max(0, min(359, int(hue)))
@@ -234,7 +234,7 @@ class ValueSlider(QWidget):
         self._pick(event.position().toPoint())
 
     def mouseMoveEvent(self, event) -> None:
-        if event.buttons() & Qt.LeftButton:
+        if event.buttons() & Qt.MouseButton.LeftButton:
             self._pick(event.position().toPoint())
 
     def _pick(self, point: QPoint) -> None:
@@ -252,12 +252,14 @@ class PaletteWorkspace(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(f"background: {BG_CARD};")
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
 
         self._selected_index = 0
         self._colors: list[str] = []
         self._custom_colors = list(DEFAULT_CUSTOM_COLORS)
         self._selected_custom_index = 0
         self._syncing = False
+        self._preserve_palette_on_next_scheme = False
         self._picker_overlay: ScreenColorPickerOverlay | None = None
 
         root = QVBoxLayout(self)
@@ -348,17 +350,22 @@ class PaletteWorkspace(QWidget):
         row.addStretch()
         btn_pick = QToolButton()
         btn_pick.setIcon(line_icon("eyedropper", color=TEXT_SECONDARY, size=16))
-        btn_pick.setToolTip("Pick Screen Color")
+        btn_pick.setText("取色")
+        btn_pick.setToolTip("屏幕取色")
+        btn_pick.setStatusTip("屏幕取色")
+        btn_pick.setAccessibleName("屏幕取色")
+        btn_pick.setToolTipDuration(5000)
+        btn_pick.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         btn_pick.setStyleSheet(ICON_BUTTON_STYLE)
-        btn_pick.setCursor(Qt.PointingHandCursor)
+        btn_pick.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_pick.clicked.connect(self._pick_screen_color)
         row.addWidget(btn_pick)
         layout.addLayout(row)
-        self.palette = ColorPalette()
-        self.palette.color_changed.connect(self._on_palette_changed)
+        self.color_palette = ColorPalette()
+        self.color_palette.color_changed.connect(self._on_palette_changed)
         palette_row = QHBoxLayout()
         palette_row.setSpacing(8)
-        palette_row.addWidget(self.palette, stretch=1)
+        palette_row.addWidget(self.color_palette, stretch=1)
         self.value_slider = ValueSlider()
         self.value_slider.value_changed.connect(self._on_value_slider_changed)
         palette_row.addWidget(self.value_slider)
@@ -399,11 +406,11 @@ class PaletteWorkspace(QWidget):
         top.addStretch()
         btn_save = QPushButton("保存当前到选中")
         btn_save.setStyleSheet(SMALL_BUTTON_STYLE)
-        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_save.clicked.connect(self._save_current_to_custom)
         btn_add = QPushButton("添加当前")
         btn_add.setStyleSheet(SMALL_BUTTON_STYLE)
-        btn_add.setCursor(Qt.PointingHandCursor)
+        btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_add.clicked.connect(self._add_current_to_custom)
         top.addWidget(btn_save)
         top.addWidget(btn_add)
@@ -420,7 +427,7 @@ class PaletteWorkspace(QWidget):
         label = QLabel(label_text)
         label.setFixedWidth(18)
         label.setStyleSheet(f"font-size: 12px; color: {TEXT_SECONDARY};")
-        slider = QSlider(Qt.Horizontal)
+        slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(minimum, maximum)
         spin = QSpinBox()
         spin.setRange(minimum, maximum)
@@ -437,14 +444,14 @@ class PaletteWorkspace(QWidget):
     def _color_button(self, color: str, *, custom_index: int | None = None) -> QPushButton:
         button = QPushButton()
         button.setFixedSize(30, 24)
-        button.setFocusPolicy(Qt.NoFocus)
-        button.setCursor(Qt.PointingHandCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setStyleSheet(
             f"QPushButton {{ background: {color}; border: 1px solid {BORDER}; border-radius: 5px; }}"
             f"QPushButton:hover {{ border: 2px solid {ACCENT}; }}"
         )
         if custom_index is None:
-            button.clicked.connect(lambda _checked=False, c=color: self._apply_selected_color(c, sync_palette=False))
+            button.clicked.connect(lambda _checked=False, c=color: self._apply_selected_color(c))
         else:
             button.clicked.connect(lambda _checked=False, i=custom_index: self._select_custom_color(i))
         return button
@@ -453,22 +460,29 @@ class PaletteWorkspace(QWidget):
         self.scheme_label.setText(f"方案: {name}  ({len(colors)} 色)")
         self._colors = [normalize_hex_color(c) for c in colors]
         self._selected_index = min(self._selected_index, max(len(self._colors) - 1, 0))
-        self._refresh_selected_editor()
+        preserve_palette = self._preserve_palette_on_next_scheme
+        self._preserve_palette_on_next_scheme = False
+        self._refresh_selected_editor(sync_palette=not preserve_palette, preserve_hs=preserve_palette)
 
     def set_selected_index(self, index: int) -> None:
         if 0 <= index < len(self._colors):
             self._selected_index = int(index)
             self._refresh_selected_editor(sync_palette=False)
 
-    def _refresh_selected_editor(self, *, sync_palette: bool = True) -> None:
+    def _refresh_selected_editor(self, *, sync_palette: bool = True, preserve_hs: bool = False) -> None:
         if not self._colors:
             self.selected_label.setText("无颜色")
             return
-        self._set_editor_color(self._colors[self._selected_index], sync_palette=sync_palette)
+        self._set_editor_color(
+            self._colors[self._selected_index],
+            sync_palette=sync_palette,
+            preserve_hs=preserve_hs,
+        )
 
-    def _set_editor_color(self, color_text: str, *, sync_palette: bool = True) -> None:
+    def _set_editor_color(self, color_text: str, *, sync_palette: bool = True, preserve_hs: bool = False) -> None:
         color = QColor(normalize_hex_color(color_text))
-        hue = max(0, color.hue())
+        hue = self.h_slider.value() if preserve_hs else max(0, color.hue())
+        saturation = self.s_slider.value() if preserve_hs else color.saturation()
         self._syncing = True
         try:
             self.selected_label.setText(f"颜色 {self._selected_index + 1}")
@@ -480,15 +494,15 @@ class PaletteWorkspace(QWidget):
                 (self.g_slider, color.green()),
                 (self.b_slider, color.blue()),
                 (self.h_slider, hue),
-                (self.s_slider, color.saturation()),
+                (self.s_slider, saturation),
                 (self.v_slider, color.value()),
             ):
                 slider.setValue(value)
             if sync_palette:
-                self.palette.set_hsv(hue, color.saturation(), color.value())
-                self.value_slider.set_hsv(hue, color.saturation(), color.value())
+                self.color_palette.set_hsv(hue, saturation, color.value())
+                self.value_slider.set_hsv(hue, saturation, color.value())
             else:
-                self.value_slider.set_hsv(self.h_slider.value(), self.s_slider.value(), color.value())
+                self.value_slider.set_hsv(hue, saturation, color.value())
         finally:
             self._syncing = False
 
@@ -505,26 +519,34 @@ class PaletteWorkspace(QWidget):
     def _on_palette_changed(self, hue: int, saturation: int) -> None:
         if self._syncing or not self._colors:
             return
+        self._syncing = True
+        try:
+            self.h_slider.setValue(hue)
+            self.s_slider.setValue(saturation)
+        finally:
+            self._syncing = False
         color = QColor.fromHsv(hue, saturation, self.v_slider.value())
-        self._apply_selected_color(color.name(), sync_palette=False)
+        self._apply_selected_color(color.name(), sync_palette=False, preserve_hs=True)
 
     def _on_value_slider_changed(self, value: int) -> None:
         if self._syncing or not self._colors:
             return
         color = QColor.fromHsv(self.h_slider.value(), self.s_slider.value(), value)
-        self._apply_selected_color(color.name(), sync_palette=False)
+        self._apply_selected_color(color.name(), sync_palette=False, preserve_hs=True)
 
     def _pick_screen_color(self) -> None:
         self._picker_overlay = ScreenColorPickerOverlay(self)
         self._picker_overlay.color_picked.connect(self._apply_selected_color)
         self._picker_overlay.showFullScreen()
 
-    def _apply_selected_color(self, color_text: str, *, sync_palette: bool = True) -> None:
+    def _apply_selected_color(self, color_text: str, *, sync_palette: bool = True, preserve_hs: bool = False) -> None:
         if not self._colors:
             return
         color = normalize_hex_color(color_text)
         self._colors[self._selected_index] = color
-        self._set_editor_color(color, sync_palette=sync_palette)
+        self._set_editor_color(color, sync_palette=sync_palette, preserve_hs=preserve_hs)
+        if preserve_hs and not sync_palette:
+            self._preserve_palette_on_next_scheme = True
         self.swatch_clicked.emit(self._selected_index, color)
 
     def _select_custom_color(self, index: int) -> None:
@@ -549,8 +571,11 @@ class PaletteWorkspace(QWidget):
     def _refresh_custom_colors(self) -> None:
         while self.custom_grid.count():
             item = self.custom_grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
         for i, color in enumerate(self._custom_colors):
             button = self._color_button(color, custom_index=i)
             if i == self._selected_custom_index:

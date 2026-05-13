@@ -39,7 +39,7 @@ class BatchExportWorker(QThread):
                 continue
             prepared = entry.get("prepared")
             fit = entry.get("fit")
-            if prepared is None:
+            if prepared is None or fit is None:
                 fail += 1
                 continue
             try:
@@ -48,10 +48,8 @@ class BatchExportWorker(QThread):
                 seg_idx = prepared.segment.index + 1
                 base = self.out_dir / f"{prefix}_seg{seg_idx}"
                 export_processed_txt(base.with_suffix(".txt"), prepared, fit)
-                if fit is not None:
-                    export_fit_npz(base.with_suffix(".npz"), prepared, fit)
-                fig = plot_tafel(prepared, fit)
-                fig.savefig(base.with_suffix(".png"), dpi=150, bbox_inches="tight")
+                export_fit_npz(base.with_suffix(".npz"), prepared, fit)
+                plot_tafel(base.with_suffix(".png"), prepared, fit)
                 success += 1
             except Exception:
                 fail += 1

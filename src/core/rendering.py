@@ -5,7 +5,9 @@ from typing import TYPE_CHECKING
 
 import matplotlib
 import numpy as np
+from matplotlib.backend_bases import MouseButton
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 from matplotlib.widgets import RectangleSelector
 
 from core.types import PreparedSeries, TafelFit
@@ -32,9 +34,11 @@ if TYPE_CHECKING:
     from ui.app import TafelAnalyzerApp
 
 
-def reset_origin_view(app: TafelAnalyzerApp) -> None:
+def _legacy_reset_origin_view(app: TafelAnalyzerApp) -> None:
     if len(app.fig.axes) < 2:
-        app._toolbar_home_original()
+        fallback = getattr(app, "_toolbar_home_original", None)
+        if callable(fallback):
+            fallback()
         return
     # 直接从图上已绘制的数据重新计算自动缩放极限，
     # 不依赖可能被用户缩放覆盖的缓存状态。
@@ -153,8 +157,11 @@ def _render_tafel_plot(
     prepared_by_segment: dict,
     fit_by_segment: dict,
     segment_styles: dict[int, dict],
+    manual_fit_regions: dict[int, dict] | None = None,
 ) -> None:
     """Render the Tafel plot (log |j| vs E) on *ax*."""
+    if manual_fit_regions is None:
+        manual_fit_regions = {}
     for segment_index in display_indices:
         segment_prepared = prepared_by_segment.get(segment_index)
         if segment_prepared is None:
@@ -213,6 +220,26 @@ def _render_tafel_plot(
                     label=slope_label,
                     zorder=z + 2,
                 )
+            region = manual_fit_regions.get(segment_index) or manual_fit_regions.get(str(segment_index))
+            if segment_fit.mode == "manual" and isinstance(region, dict):
+                try:
+                    x_min = float(region["x_min"])
+                    x_max = float(region["x_max"])
+                    y_min = float(region["y_min"])
+                    y_max = float(region["y_max"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                ax.add_patch(Rectangle(
+                    (min(x_min, x_max), min(y_min, y_max)),
+                    abs(x_max - x_min),
+                    abs(y_max - y_min),
+                    fill=False,
+                    edgecolor=color,
+                    linewidth=1.4,
+                    linestyle=":",
+                    alpha=0.9,
+                    zorder=z + 3,
+                ))
 
 
 def render_figure(
@@ -259,7 +286,14 @@ def render_figure(
             segment_styles[segment_index] = style
 
         _render_ej_plot(ax0, display_indices, prepared_by_segment, fit_by_segment, segment_styles)
-        _render_tafel_plot(ax1, display_indices, prepared_by_segment, fit_by_segment, segment_styles)
+        _render_tafel_plot(
+            ax1,
+            display_indices,
+            prepared_by_segment,
+            fit_by_segment,
+            segment_styles,
+            app._app_state.get("manual_fit_regions", {}),
+        )
 
         # Labels, titles, legends
         active_fit = fit_by_segment.get(active_index) if has_active else None
@@ -273,7 +307,7 @@ def render_figure(
             pad=8,
         )
         ax0.grid(True)
-        legend0 = ax0.legend(fontsize=FONTSIZE_LEGEND, loc="best")
+        legend0 = _legend_if_needed(ax0)
         if not has_active:
             ax1.set_title("Tafel 拟合", fontsize=FONTSIZE_TITLE, color=TEXT_PRIMARY, pad=8)
         elif active_fit is None:
@@ -291,10 +325,17 @@ def render_figure(
         ax1.set_xlabel("log10(|j|)", fontsize=FONTSIZE_LABEL)
         ax1.set_ylabel(ref_prepared.tafel_y_label, fontsize=FONTSIZE_LABEL)
         ax1.grid(True)
-        legend1 = ax1.legend(fontsize=FONTSIZE_LEGEND, loc="best")
+        legend1 = _legend_if_needed(ax1)
         enable_draggable_legend(legend0)
         enable_draggable_legend(legend1)
     return ax0, ax1
+
+
+def _legend_if_needed(ax):
+    handles, labels = ax.get_legend_handles_labels()
+    if not any(label and not label.startswith("_") for label in labels):
+        return None
+    return ax.legend(fontsize=FONTSIZE_LEGEND, loc="upper right")
 
 
 def enable_draggable_legend(legend) -> None:
@@ -385,6 +426,27 @@ def view_state_from_legacy_limits(
     return {"axes": axes} if axes else None
 
 
+def axes_limits_from_view_state(
+    view_state: dict | list | None,
+) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    if isinstance(view_state, list):
+        view_state = view_state_from_legacy_limits(view_state)
+    if not isinstance(view_state, dict):
+        return []
+    limits: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for axis_state in view_state.get("axes", []):
+        if not isinstance(axis_state, dict):
+            continue
+        try:
+            xlim = tuple(float(v) for v in axis_state.get("xlim", ()))
+            ylim = tuple(float(v) for v in axis_state.get("ylim", ()))
+        except (TypeError, ValueError):
+            continue
+        if len(xlim) == 2 and len(ylim) == 2:
+            limits.append((xlim, ylim))
+    return limits
+
+
 def apply_plot_view_state(
     app: TafelAnalyzerApp,
     axes: list,
@@ -395,6 +457,8 @@ def apply_plot_view_state(
     if not isinstance(view_state, dict):
         return
     for axis, axis_state in zip(axes[:2], view_state.get("axes", [])):
+        if not isinstance(axis_state, dict):
+            continue
         try:
             xlim = axis_state.get("xlim")
             ylim = axis_state.get("ylim")
@@ -408,16 +472,74 @@ def apply_plot_view_state(
 
 
 def capture_axes_limits(app: TafelAnalyzerApp) -> list[tuple[tuple[float, float], tuple[float, float]]]:
-    limits: list[tuple[tuple[float, float], tuple[float, float]]] = []
     view_state = capture_plot_view_state(app, app.fig)
     if not view_state:
-        return limits
-    for axis_state in view_state.get("axes", []):
-        xlim = tuple(float(v) for v in axis_state.get("xlim", ()))
-        ylim = tuple(float(v) for v in axis_state.get("ylim", ()))
-        if len(xlim) == 2 and len(ylim) == 2:
-            limits.append((xlim, ylim))
-    return limits
+        return []
+    return axes_limits_from_view_state(view_state)
+
+
+def _autoscale_axis(axis) -> None:
+    try:
+        axis.set_autoscale_on(True)
+        axis.relim(visible_only=True)
+        axis.autoscale_view()
+    except Exception:
+        pass
+
+
+def reset_legend_to_default(axis) -> None:
+    legend = axis.get_legend()
+    if legend is None:
+        return
+    try:
+        legend.set_bbox_to_anchor(None)
+    except Exception:
+        try:
+            legend._bbox_to_anchor = None
+        except Exception:
+            pass
+    try:
+        if hasattr(legend, "set_loc"):
+            legend.set_loc("upper right")
+        else:
+            legend._loc = 1
+    except Exception:
+        try:
+            legend._loc = 1
+        except Exception:
+            pass
+    enable_draggable_legend(legend)
+
+
+def reset_origin_view(app: TafelAnalyzerApp) -> None:
+    axes = app.fig.axes[:2]
+    if len(axes) < 2:
+        fallback = getattr(app, "_toolbar_home_original", None)
+        if callable(fallback):
+            fallback()
+        return
+
+    mode = "comparison" if app._app_state.get("active_chart_mode") == "comparison" else "single"
+    if mode == "comparison":
+        default_key = "compare_plot_default_view_state"
+        current_key = "compare_plot_view_state"
+    else:
+        default_key = "single_plot_default_view_state"
+        current_key = "single_plot_view_state"
+    default_state = app._app_state.get(default_key)
+
+    for ax in axes:
+        reset_legend_to_default(ax)
+
+    if default_state:
+        apply_plot_view_state(app, axes, default_state)
+    else:
+        for ax in axes:
+            _autoscale_axis(ax)
+        app._app_state[default_key] = capture_plot_view_state(app, app.fig)
+
+    app._app_state[current_key] = capture_plot_view_state(app, app.fig)
+    app.canvas.draw_idle()
 
 
 def destroy_selector(app: TafelAnalyzerApp) -> None:
@@ -457,7 +579,7 @@ def refresh_selector(app: TafelAnalyzerApp) -> None:
         ax_tafel,
         app.fitting.on_manual_select,
         useblit=True,
-        button=[1],
+        button=[MouseButton.LEFT],
         minspanx=0.01,
         minspany=0.01,
         spancoords="data",
@@ -479,7 +601,7 @@ def draw(
     if preserve_view_state is None:
         preserve_view_state = current_or_saved_plot_view_state(app, "single")
     active_index = app.state.segments.active_index
-    selected_indices = list(app.state.segments.selected_indices)
+    selected_indices = [int(index) for index in app.state.segments.selected_indices]
     display_indices = sorted(set(selected_indices))
     p_map = app.state.analysis.prepared_by_segment or {prepared.segment.index: prepared}
     f_map = app.state.analysis.fit_by_segment or ({prepared.segment.index: fit} if fit is not None else {})

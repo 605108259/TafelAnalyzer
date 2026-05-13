@@ -29,18 +29,18 @@ class FileListItem(QWidget):
     def __init__(self, file_path: Path, display_name: str, is_processed: bool = False):
         super().__init__()
         self.setObjectName("FileItem")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.file_path = file_path
         self._display_name = display_name
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 2, 8, 2)
         layout.setSpacing(6)
-        layout.setAlignment(Qt.AlignVCenter)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.name_edit = QLineEdit(display_name)
         self.name_edit.setReadOnly(True)
-        self.name_edit.setFocusPolicy(Qt.NoFocus)
-        self.name_edit.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.name_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.name_edit.setFrame(False)
         self.name_edit.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; background: transparent;")
         self.name_edit.setToolTip(str(file_path))
@@ -58,8 +58,8 @@ class FileListItem(QWidget):
             f"QPushButton {{ border: none; border-radius: 11px; color: #dc2626; font-size: 14px; font-weight: bold; }}"
             f"QPushButton:hover {{ background: #fee2e2; }}"
         )
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setFocusPolicy(Qt.NoFocus)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.clicked.connect(lambda: self.remove_clicked.emit(self.file_path))
         layout.addWidget(btn)
 
@@ -70,8 +70,8 @@ class FileListItem(QWidget):
 
     def begin_rename(self) -> None:
         self.name_edit.setReadOnly(False)
-        self.name_edit.setAttribute(Qt.WA_TransparentForMouseEvents, False)
-        self.name_edit.setFocus(Qt.MouseFocusReason)
+        self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.name_edit.setFocus(Qt.FocusReason.MouseFocusReason)
         self.name_edit.selectAll()
 
     def _finish_rename(self) -> None:
@@ -82,7 +82,7 @@ class FileListItem(QWidget):
             text = self._display_name
             self.name_edit.setText(text)
         self.name_edit.setReadOnly(True)
-        self.name_edit.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._display_name = text
         self.renamed.emit(self.file_path, text)
 
@@ -98,15 +98,15 @@ class SegmentItemWidget(QWidget):
                  is_active: bool, is_checked: bool):
         super().__init__()
         self.setObjectName("SegmentItem")
-        self.setAttribute(Qt.WA_Hover, True)
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.segment_index = index
         self._active = is_active
         self._hover = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(0)
-        layout.setAlignment(Qt.AlignVCenter)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         # Checkbox
         self.cb = CheckmarkBox(is_checked)
@@ -115,7 +115,7 @@ class SegmentItemWidget(QWidget):
 
         # Label
         name = QLabel(label)
-        name.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         name.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; background: transparent;")
         layout.addWidget(name, stretch=1)
 
@@ -123,25 +123,25 @@ class SegmentItemWidget(QWidget):
         self.color_btn = QPushButton()
         self.color_btn.setFixedSize(16, 16)
         self.color_btn.setStyleSheet(swatch_button_style(color, radius=4))
-        self.color_btn.setCursor(Qt.PointingHandCursor)
+        self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.color_btn.clicked.connect(lambda: self.color_clicked.emit(index))
         layout.addWidget(self.color_btn)
 
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(SEGMENT_ITEM_STYLE)
         self._apply_bg()
 
     def event(self, event):
-        if event.type() == QEvent.HoverEnter:
+        if event.type() == QEvent.Type.HoverEnter:
             self._hover = True
             self._apply_bg()
-        elif event.type() == QEvent.HoverLeave:
+        elif event.type() == QEvent.Type.HoverLeave:
             self._hover = False
             self._apply_bg()
         return super().event(event)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.activated.emit(self.segment_index)
         super().mousePressEvent(event)
 
@@ -195,7 +195,7 @@ class FileSegmentPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("SidePanel")
-        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
         self.setStyleSheet(PANEL_STYLE)
 
         outer = QVBoxLayout(self)
@@ -223,7 +223,7 @@ class FileSegmentPanel(QWidget):
             b = QToolButton()
             b.setIcon(line_icon(name, color=TEXT_PRIMARY, size=16))
             b.setToolTip(tip)
-            b.setCursor(Qt.PointingHandCursor)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(ICON_BUTTON_STYLE)
             b.clicked.connect(cb)
             title_row.addWidget(b)
@@ -232,7 +232,7 @@ class FileSegmentPanel(QWidget):
         outer.addWidget(file_header)
 
         # ━━ QSplitter: file list / segment section ━━
-        splitter = QSplitter(Qt.Vertical)
+        splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(4)
         splitter.setStyleSheet(f"QSplitter::handle {{ background: {BG_HOVER}; }}")
 
@@ -257,19 +257,19 @@ class FileSegmentPanel(QWidget):
 
         btn_select_all = QPushButton("全选")
         btn_select_all.setStyleSheet(SMALL_BUTTON_STYLE)
-        btn_select_all.setCursor(Qt.PointingHandCursor)
+        btn_select_all.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_select_all.clicked.connect(self.select_all_clicked.emit)
         seg_header.addWidget(btn_select_all)
 
         btn_clear_all = QPushButton("全不选")
         btn_clear_all.setStyleSheet(SMALL_BUTTON_STYLE)
-        btn_clear_all.setCursor(Qt.PointingHandCursor)
+        btn_clear_all.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_clear_all.clicked.connect(self.clear_all_clicked.emit)
         seg_header.addWidget(btn_clear_all)
 
         btn_add_cmp = QPushButton("对比")
         btn_add_cmp.setStyleSheet(ACCENT_BUTTON_STYLE)
-        btn_add_cmp.setCursor(Qt.PointingHandCursor)
+        btn_add_cmp.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_add_cmp.clicked.connect(self.add_to_comparison.emit)
         seg_header.addWidget(btn_add_cmp)
 
@@ -294,7 +294,7 @@ class FileSegmentPanel(QWidget):
 
         btn_apply = QPushButton("应用")
         btn_apply.setStyleSheet(SMALL_BUTTON_STYLE)
-        btn_apply.setCursor(Qt.PointingHandCursor)
+        btn_apply.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_apply.clicked.connect(
             lambda: self.palette_apply_clicked.emit(self.palette_apply_mode.currentData() or "sequential")
         )
@@ -304,7 +304,7 @@ class FileSegmentPanel(QWidget):
         btn_manage.setIcon(line_icon("gear", color=TEXT_SECONDARY, size=14))
         btn_manage.setToolTip("管理配色方案")
         btn_manage.setStyleSheet(ICON_BUTTON_STYLE)
-        btn_manage.setCursor(Qt.PointingHandCursor)
+        btn_manage.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_manage.clicked.connect(self.palette_manage_clicked.emit)
         palette_row.addWidget(btn_manage)
 
@@ -313,7 +313,7 @@ class FileSegmentPanel(QWidget):
         # Segment list
         self.segment_list = QListWidget()
         self.segment_list.setStyleSheet(LIST_STYLE)
-        self.segment_list.setSelectionMode(QListWidget.NoSelection)
+        self.segment_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         segment_layout.addWidget(self.segment_list, stretch=1)
 
         splitter.addWidget(segment_container)
@@ -372,9 +372,9 @@ class FileSegmentPanel(QWidget):
             current = self._file_paths[current_row]
         confirm = QMessageBox.question(
             self, "确认移除", f"确定要移除文件吗？\n\n{current.name}",
-            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if confirm == QMessageBox.Yes:
+        if confirm == QMessageBox.StandardButton.Yes:
             self._file_paths.remove(current)
             self._processed.discard(str(current))
             self._rebuild_file_list()
@@ -399,9 +399,9 @@ class FileSegmentPanel(QWidget):
     def _on_file_remove(self, path: Path):
         confirm = QMessageBox.question(
             self, "确认移除", f"确定要移除文件吗？\n\n{path.name}",
-            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if confirm == QMessageBox.Yes:
+        if confirm == QMessageBox.StandardButton.Yes:
             self._file_paths.remove(path)
             self._processed.discard(str(path))
             self._rebuild_file_list()
@@ -465,7 +465,8 @@ class FileSegmentPanel(QWidget):
         self.segment_list.clear()
         for seg in self._segments:
             idx = seg["index"]
-            color = self._segment_colors.get(idx, _DEFAULT_COLORS[idx % len(_DEFAULT_COLORS)])
+            default_color = _DEFAULT_COLORS[idx % len(_DEFAULT_COLORS)]
+            color = self._segment_colors.get(idx) or default_color
             is_active = idx == self._active_index
             is_checked = idx in self._checked_indices
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,6 +24,78 @@ class ColorUtilsTests(unittest.TestCase):
 
         self.assertFalse(is_hex_color("#12"))
         self.assertEqual(normalize_hex_color("#12", fallback="#000000"), "#000000")
+
+
+class PaletteMappingTests(unittest.TestCase):
+    def test_interpolated_palette_downsampling_keeps_first_and_last_colors(self) -> None:
+        from ui.controllers.file_ctrl import _map_palette_colors
+
+        source = [f"#{i}{i}{i}{i}{i}{i}" for i in range(8)]
+
+        mapped = _map_palette_colors(source, 4, "interpolate")
+
+        self.assertEqual(len(mapped), 4)
+        self.assertEqual(mapped[0], source[0])
+        self.assertEqual(mapped[-1], source[-1])
+
+
+class PaletteSettingsTests(unittest.TestCase):
+    def test_save_app_settings_accepts_mixed_string_and_int_color_indices(self) -> None:
+        from ui import settings
+        from ui.state import DEFAULT_SCHEME_NAME
+
+        class App:
+            pass
+
+        app = App()
+        app._app_state = {
+            "palette_schemes": {
+                DEFAULT_SCHEME_NAME: {
+                    "0": "#111111",
+                    1: "#222222",
+                },
+            },
+            "palette_scheme_slot_counts": {DEFAULT_SCHEME_NAME: 2},
+            "active_palette_scheme": DEFAULT_SCHEME_NAME,
+            "project_history": [],
+        }
+
+        original_path = settings.APP_SETTINGS_PATH
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            settings.APP_SETTINGS_PATH = Path(tmp_dir) / "settings.json"
+            try:
+                settings.save_app_settings(app)
+                payload = settings.APP_SETTINGS_PATH.read_text(encoding="utf-8")
+            finally:
+                settings.APP_SETTINGS_PATH = original_path
+
+        self.assertIn('"0": "#111111"', payload)
+        self.assertIn('"1": "#222222"', payload)
+
+    def test_load_app_settings_scans_history_cache_when_settings_file_is_missing(self) -> None:
+        from ui import settings
+        from ui.state import AppState
+
+        original_path = settings.APP_SETTINGS_PATH
+        original_history_dir = settings.HISTORY_CACHE_DIR
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            history_dir = root / "history_cache"
+            history_dir.mkdir()
+            (history_dir / "2026-05-13 10-20-30.json").write_text(
+                '{"selected_paths": ["D:/data/sample.cor"], "current_path": "D:/data/sample.cor"}',
+                encoding="utf-8",
+            )
+            settings.APP_SETTINGS_PATH = root / "missing-settings.json"
+            settings.HISTORY_CACHE_DIR = history_dir
+            try:
+                state = AppState()
+                settings.load_app_settings(type("App", (), {"_app_state": state.raw})())
+            finally:
+                settings.APP_SETTINGS_PATH = original_path
+                settings.HISTORY_CACHE_DIR = original_history_dir
+
+        self.assertEqual(len(state.raw["project_history"]), 1)
 
 
 class ComparisonStateTests(unittest.TestCase):

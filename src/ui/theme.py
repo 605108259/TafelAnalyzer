@@ -257,7 +257,7 @@ class CheckmarkBox(QAbstractButton):
         super().__init__(parent)
         self._checked = checked
         self.setFixedSize(18, 18)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clicked.connect(self._toggle)
 
     def _toggle(self):

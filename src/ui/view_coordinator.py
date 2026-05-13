@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ui.activity_bar import PANEL_COMPARISON, PANEL_FILES, PANEL_PALETTE
+from PySide6.QtCore import QTimer
+
+from ui.activity_bar import PANEL_COMPARISON, PANEL_FILES, PANEL_PALETTE, PANEL_HISTORY
 from core.types import COMPARISON_COLORS
 
 if TYPE_CHECKING:
@@ -18,6 +20,7 @@ class ViewCoordinator:
 
     def __init__(self, app: TafelAnalyzerApp):
         self.app = app
+        self._render_token = 0
 
     def show_panel(self, panel_id: int) -> None:
         app = self.app
@@ -33,6 +36,8 @@ class ViewCoordinator:
             self.show_comparison()
         elif panel_id == PANEL_PALETTE:
             self.show_palette()
+        elif panel_id == PANEL_HISTORY:
+            self.show_history()
 
     def show_single(self) -> None:
         app = self.app
@@ -48,7 +53,10 @@ class ViewCoordinator:
         app.toolbar.show()
         app._comp_nav.hide()
         app.summary_table.hide()
-        self.render_single()
+        # 若模式未变化，只做轻量刷新（draw_idle），避免全量重绘 axes
+        if previous_mode == "single":
+            return
+        self._queue_chart_render("single")
 
     def show_comparison(self) -> None:
         app = self.app
@@ -62,13 +70,44 @@ class ViewCoordinator:
         app.toolbar.hide()
         app._comp_nav.show()
         app.summary_table.hide()
-        self.render_comparison()
+        # 若模式未变化，只做轻量刷新（draw_idle），避免全量重绘 axes
+        if previous_mode == "comparison":
+            return
+        self._queue_chart_render("comparison")
+
+    def _queue_chart_render(self, mode: str) -> None:
+        self._render_token += 1
+        token = self._render_token
+
+        def render_if_current() -> None:
+            if token != self._render_token:
+                return
+            if mode == "single":
+                if self.app.state.comparison_mode:
+                    return
+                self.render_single()
+                return
+            if not self.app.state.comparison_mode:
+                return
+            self.render_comparison()
+
+        QTimer.singleShot(0, render_if_current)
 
     def show_palette(self) -> None:
         app = self.app
-        app.right_stack.setCurrentIndex(1)
+        self._render_token += 1
+        app.right_stack.setCurrentWidget(app.palette_workspace)
         app.summary_table.hide()
         self.refresh_palette_workspace()
+
+    def show_history(self) -> None:
+        app = self.app
+        self._render_token += 1
+        app.right_stack.setCurrentWidget(app.history_workspace)
+        app.toolbar.hide()
+        app._comp_nav.hide()
+        app.summary_table.hide()
+        self.refresh_history_panel()
 
     def render_single(self) -> None:
         app = self.app
@@ -90,18 +129,6 @@ class ViewCoordinator:
         else:
             self.render_single()
 
-    def clear_chart_highlights(self) -> None:
-        """清除视觉高亮，不改变激活分段状态。"""
-        app = self.app
-        if app.state.comparison_mode:
-            app.state.comparison.set_highlight(-1)
-            self.refresh_comparison_list(rebuild=False)
-            self.render_comparison()
-            return
-        # 单文件模式：仅触发重渲染（不改变 active_segment_index）
-        self.refresh_segments()
-        self.render_single()
-
     def reset_active_segment(self) -> None:
         """重置激活分段为无选中状态。"""
         app = self.app
@@ -121,6 +148,13 @@ class ViewCoordinator:
             processed=set(app._app_state.get("current_result_keys", {}).keys()),
             names=app.state.files.display_names(),
         )
+
+    def refresh_history_panel(self) -> None:
+        app = self.app
+        if hasattr(app, "history_panel"):
+            changed = app.history_panel.set_entries(app._app_state.get("project_history", []))
+            if changed and hasattr(app, "history_workspace"):
+                app.history_workspace.set_entry(app.history_panel.current_entry())
 
     def refresh_segments(self, *, rebuild: bool = False) -> None:
         app = self.app

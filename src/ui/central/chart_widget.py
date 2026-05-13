@@ -4,18 +4,22 @@ import matplotlib
 matplotlib.use("QtAgg")
 
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.backends.backend_qt import NavigationToolbar2QT
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal, QTimer
 
-from ui.theme import BG_CARD, BORDER
+from ui.theme import BG_CARD
 
 
 class ChartArea(QWidget):
     """Central matplotlib chart area with dual plots."""
 
     clicked_outside_axes = Signal()
+    interaction_finished = Signal()
+    # 窗口大小变化且稳定后发出，供外部按需重绘
+    resized_stable = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -41,10 +45,34 @@ class ChartArea(QWidget):
         self.axes: list = []
 
         self.fig.canvas.mpl_connect("button_press_event", self._on_fig_click)
+        self.fig.canvas.mpl_connect("button_release_event", self._on_fig_release)
+        self.fig.canvas.mpl_connect("scroll_event", self._on_fig_scroll)
+
+        # Resize debounce timer — 防止窗口拖拽时频繁全量重绘
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(150)  # 150ms 防抖
+        self._resize_timer.timeout.connect(self._on_resize_stable)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # 每次 resize 都重置计时器，直到窗口停止拖拽才触发稳定信号
+        self._resize_timer.start()
+
+    def _on_resize_stable(self) -> None:
+        """窗口尺寸稳定后触发，仅 draw_idle 不做全量重渲。"""
+        self.canvas.draw_idle()
+        self.resized_stable.emit()
 
     def _on_fig_click(self, event) -> None:
         if event.inaxes is None:
             self.clicked_outside_axes.emit()
+
+    def _on_fig_release(self, event) -> None:
+        self.interaction_finished.emit()
+
+    def _on_fig_scroll(self, event) -> None:
+        self.interaction_finished.emit()
 
     def clear_figure(self) -> None:
         self.fig.clear()

@@ -86,7 +86,7 @@ def read_table_channels(path: Path) -> dict[str, np.ndarray]:
         key = str(name).strip()
         if not key or key.lower().startswith("unnamed"):
             continue
-        values = pd.to_numeric(df[name], errors="coerce").to_numpy(dtype=float)
+        values = np.asarray(pd.to_numeric(df[name], errors="coerce"), dtype=float).reshape(-1)
         channels[key] = values
     if not channels:
         raise ValueError(f"未在文件中识别到有效列：{path.name}")

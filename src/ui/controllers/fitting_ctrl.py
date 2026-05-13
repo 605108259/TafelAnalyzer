@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QThread, Signal, Qt
 
@@ -37,6 +37,7 @@ class FitWorker(QThread):
         eta_range,
         logj_range,
         precomputed_segments=None,
+        prepared_cache=None,
     ):
         super().__init__()
         self.channels = channels
@@ -51,6 +52,8 @@ class FitWorker(QThread):
         self.eta_range = eta_range
         self.logj_range = logj_range
         self.precomputed_segments = precomputed_segments
+        self.prepared_cache = dict(prepared_cache or {})
+        self.generation: int | None = None
 
     def run(self) -> None:
         try:
@@ -59,14 +62,16 @@ class FitWorker(QThread):
             error_map = {}
             for seg_idx in self.selected_indices:
                 try:
-                    prepared = prepare_series(
-                        self.channels,
-                        potential_formula=self.pot_formula,
-                        current_formula=self.cur_formula,
-                        e_eq=self.e_eq,
-                        segment_index=seg_idx,
-                        precomputed_segments=self.precomputed_segments,
-                    )
+                    prepared = self.prepared_cache.get(seg_idx)
+                    if prepared is None:
+                        prepared = prepare_series(
+                            self.channels,
+                            potential_formula=self.pot_formula,
+                            current_formula=self.cur_formula,
+                            e_eq=self.e_eq,
+                            segment_index=seg_idx,
+                            precomputed_segments=self.precomputed_segments,
+                        )
                     prepared_map[seg_idx] = prepared
                 except Exception as exc:
                     error_map[seg_idx] = str(exc)
@@ -105,7 +110,59 @@ class FittingController(BaseAppController):
         stop_worker(self._worker)
         self._worker = None
 
-    def run_fit(self) -> None:
+    def _prepared_cache_key(
+        self,
+        *,
+        path,
+        potential_formula: str,
+        current_formula: str,
+        e_eq: float,
+        segment_index: int,
+    ) -> tuple:
+        from core.cache import file_fingerprint
+
+        return (
+            "prepared-v1",
+            file_fingerprint(path),
+            potential_formula,
+            current_formula,
+            round(float(e_eq), 12),
+            int(segment_index),
+        )
+
+    def _prepared_from_cache(
+        self,
+        *,
+        path,
+        potential_formula: str,
+        current_formula: str,
+        e_eq: float,
+        segment_index: int,
+    ):
+        key = self._prepared_cache_key(
+            path=path,
+            potential_formula=potential_formula,
+            current_formula=current_formula,
+            e_eq=e_eq,
+            segment_index=segment_index,
+        )
+        return self.app._app_state.setdefault("prepared_cache", {}).get(key)
+
+    def _remember_prepared(self, *, path, prepared) -> None:
+        key = self._prepared_cache_key(
+            path=path,
+            potential_formula=prepared.potential_formula,
+            current_formula=prepared.current_formula,
+            e_eq=float(prepared.e_eq),
+            segment_index=int(prepared.segment.index),
+        )
+        cache = self.app._app_state.setdefault("prepared_cache", {})
+        cache[key] = prepared
+        if len(cache) > 512:
+            oldest_key = next(iter(cache))
+            cache.pop(oldest_key, None)
+
+    def run_fit(self, *, force: bool = False) -> None:
         """Gather parameters and start background fitting for all selected segments."""
         app = self.app
         state = app._app_state
@@ -117,7 +174,7 @@ class FittingController(BaseAppController):
         if not segments:
             return
 
-        selected_indices = list(state.get("selected_segment_indices", []))
+        selected_indices = [int(index) for index in state.get("selected_segment_indices", [])]
         if not selected_indices:
             return
 
@@ -132,12 +189,15 @@ class FittingController(BaseAppController):
 
         # Parse window range (integer range, minimum 2)
         try:
-            window_min, window_max = parse_range_text(
+            window_range = parse_range_text(
                 params.get("window_range", "") or "12-15",
                 "窗口点数范围",
                 integer=True,
                 minimum=2,
             )
+            if window_range is None:
+                raise ValueError("窗口点数范围不能为空")
+            window_min, window_max = int(window_range[0]), int(window_range[1])
         except ValueError as exc:
             app.status_bar.setText(str(exc))
             return
@@ -170,6 +230,44 @@ class FittingController(BaseAppController):
 
         pot_f, cur_f = app.toolbar.get_formulas()
 
+        path = app.state.files.current_path
+        if path is not None:
+            from core.cache import make_result_cache_key
+
+            cache_key = make_result_cache_key(
+                tdms_path=path,
+                potential_formula=pot_f,
+                current_formula=cur_f,
+                e_eq=e_eq,
+                selected_segment_indices=tuple(selected_indices),
+                min_window=window_min,
+                max_window=window_max,
+                eta_range=eta_range,
+                logj_range=logj_range,
+                min_r2=min_r2,
+                fit_priority=fit_priority,
+            )
+            if not force and hasattr(app, "files"):
+                entry = app.files.result_cache_entry(cache_key)
+                if entry is not None and app.files.restore_result_cache_entry(
+                    cache_key,
+                    entry,
+                    status="已从当前项目缓存恢复拟合结果",
+                ):
+                    return
+        prepared_cache = {}
+        if path is not None:
+            for segment_index in selected_indices:
+                prepared = self._prepared_from_cache(
+                    path=path,
+                    potential_formula=pot_f,
+                    current_formula=cur_f,
+                    e_eq=e_eq,
+                    segment_index=int(segment_index),
+                )
+                if prepared is not None:
+                    prepared_cache[int(segment_index)] = prepared
+
         # Clean up previous worker
         stop_worker(self._worker)
 
@@ -187,6 +285,7 @@ class FittingController(BaseAppController):
             eta_range,
             logj_range,
             precomputed_segments=state.get("_precomputed_segments"),
+            prepared_cache=prepared_cache,
         )
         generation = app.state.operations.generation
         self._worker.generation = generation
@@ -195,13 +294,13 @@ class FittingController(BaseAppController):
         self._worker.start()
 
     def _on_fit_finished_from_worker(self, prepared_map, fit_map, error_map) -> None:
-        worker = self.sender()
+        worker = cast(FitWorker | None, self.sender())
         if worker is None:
             return
         self._on_fit_finished(prepared_map, fit_map, error_map, worker.generation)
 
     def _on_fit_error_from_worker(self, msg) -> None:
-        worker = self.sender()
+        worker = cast(FitWorker | None, self.sender())
         if worker is None:
             return
         if not self.app.state.operations.is_current(worker.generation):
@@ -215,15 +314,24 @@ class FittingController(BaseAppController):
         app = self.app
         if not app.state.operations.is_current(generation):
             return
+        regions = app._app_state.setdefault("manual_fit_regions", {})
+        for segment_index in set(prepared_map) | set(fit_map) | set(error_map):
+            regions.pop(int(segment_index), None)
         active_prepared = app.state.analysis.merge_fit_results(
             prepared_map=prepared_map,
             fit_map=fit_map,
             error_map=error_map,
         )
+        path = app.state.files.current_path
+        if path is not None:
+            for prepared in prepared_map.values():
+                self._remember_prepared(path=path, prepared=prepared)
 
         app.views.refresh_segments()
         if active_prepared is not None:
             app.views.render_single()
+        if hasattr(app, "files"):
+            app.files.autosave_project_history()
 
         # Status summary
         success_count = len(fit_map)
@@ -261,13 +369,13 @@ class FittingController(BaseAppController):
             from core.rendering import refresh_selector
             refresh_selector(app)
         from PySide6.QtGui import QCursor
-        app.canvas.setCursor(QCursor(Qt.CrossCursor))
+        app.canvas.setCursor(QCursor(Qt.CursorShape.CrossCursor))
 
     def disable_manual_mode(self) -> None:
         app = self.app
         app.state.interaction.disable_manual()
         from PySide6.QtGui import QCursor
-        app.canvas.setCursor(QCursor(Qt.ArrowCursor))
+        app.canvas.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         from core.rendering import destroy_selector
         destroy_selector(app)
         if hasattr(app, "toolbar"):
@@ -317,13 +425,26 @@ class FittingController(BaseAppController):
                     app.status_bar.setText("E_eq 格式错误")
                     return
                 pot_f, cur_f = app.toolbar.get_formulas()
-                prepared = prepare_series(
-                    app._app_state["channels"],
-                    potential_formula=pot_f,
-                    current_formula=cur_f,
-                    e_eq=e_eq,
-                    segment_index=active_index,
-                )
+                path = app.state.files.current_path
+                if path is not None:
+                    prepared = self._prepared_from_cache(
+                        path=path,
+                        potential_formula=pot_f,
+                        current_formula=cur_f,
+                        e_eq=e_eq,
+                        segment_index=active_index,
+                    )
+                if prepared is None:
+                    prepared = prepare_series(
+                        app._app_state["channels"],
+                        potential_formula=pot_f,
+                        current_formula=cur_f,
+                        e_eq=e_eq,
+                        segment_index=active_index,
+                        precomputed_segments=app._app_state.get("_precomputed_segments"),
+                    )
+                    if path is not None:
+                        self._remember_prepared(path=path, prepared=prepared)
                 app._app_state.setdefault("prepared_by_segment", {})[active_index] = prepared
             app._app_state["prepared"] = prepared
             app._app_state["fit"] = app._app_state.get("fit_by_segment", {}).get(active_index)
@@ -334,12 +455,20 @@ class FittingController(BaseAppController):
                 eta_range=eta_range, logj_range=logj_range,
                 min_r2=min_r2,
             )
+            app._app_state.setdefault("manual_fit_regions", {})[active_index] = {
+                "x_min": min(float(eclick.xdata), float(erelease.xdata)),
+                "x_max": max(float(eclick.xdata), float(erelease.xdata)),
+                "y_min": min(float(eclick.ydata), float(erelease.ydata)),
+                "y_max": max(float(eclick.ydata), float(erelease.ydata)),
+            }
             app.state.analysis.apply_manual_fit(segment_index=active_index, fit=fit)
 
             draw(app, prepared, fit, preserve_view_state=limits)
             app.status_bar.setText(
                 f"手动拟合完成: {fit.slope_mv_per_dec:.2f} mV/dec, R²={fit.r2:.4f}"
             )
+            if hasattr(app, "files"):
+                app.files.autosave_project_history()
             # Keep manual mode active for continuous selection
             refresh_selector(app)
         except Exception as exc:

@@ -54,7 +54,7 @@ def test_build_cumulative():
 
 def test_build_segment_infos_single_segment():
     """连续数据应识别为单个分段。"""
-    channels = {"V": list(range(100))}
+    channels = {"V": np.arange(100)}
     infos = build_segment_infos(channels)
     assert len(infos) == 1
     assert infos[0].start == 0
@@ -63,7 +63,7 @@ def test_build_segment_infos_single_segment():
 
 def test_build_segment_infos_with_jump():
     """含有大幅跳跃的数据应分割为多个分段。"""
-    data = list(range(50)) + list(range(200, 250))
+    data = np.asarray(list(range(50)) + list(range(200, 250)))
     channels = {"potential": data}
     infos = build_segment_infos(channels, "[potential]")
     assert len(infos) >= 2

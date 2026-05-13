@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QToolButton,
@@ -32,14 +34,14 @@ class ToolBar(QWidget):
         super().__init__(parent)
         self.setObjectName("ToolBar")
         self.setFixedHeight(68)
-        self.setAttribute(Qt.WA_AlwaysShowToolTips, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
         self.setStyleSheet(TOOLBAR_STYLE)
 
         from ui.icons import line_icon
 
         self._tool_buttons: dict[str, QToolButton] = {}
         self._action_buttons: dict[str, QToolButton] = {}
-        self._tool_actions: dict[str, Signal] = {}
+        self._tool_actions: dict[str, Any] = {}
         self._active_tool: str | None = None
 
         outer = QVBoxLayout(self)
@@ -102,17 +104,17 @@ class ToolBar(QWidget):
 
         btn_fit = QPushButton("▶ 拟合")
         btn_fit.setStyleSheet(ACCENT_BUTTON_STYLE.replace(ACCENT, SUCCESS).replace(ACCENT_HOVER, SUCCESS_HOVER))
-        btn_fit.setCursor(Qt.PointingHandCursor)
+        btn_fit.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_fit.clicked.connect(self.fit_clicked.emit)
         row2.addWidget(btn_fit)
 
         row2.addStretch()
 
-        def _toggle_btn(name: str, tooltip: str, signal: Signal) -> QToolButton:
+        def _toggle_btn(name: str, tooltip: str, signal: Any) -> QToolButton:
             btn = QToolButton()
             btn.setIcon(line_icon(name, color=TEXT_PRIMARY, size=16))
             btn.setToolTip(tooltip)
-            btn.setCursor(Qt.PointingHandCursor)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setCheckable(True)
             btn.setStyleSheet(ICON_BUTTON_STYLE +
                 f"QToolButton:checked {{ background: #2563eb; border-radius: 4px; padding: 2px; }}"
@@ -122,11 +124,11 @@ class ToolBar(QWidget):
             self._tool_actions[name] = signal
             return btn
 
-        def _action_btn(name: str, tooltip: str, signal: Signal) -> QToolButton:
+        def _action_btn(name: str, tooltip: str, signal: Any) -> QToolButton:
             btn = QToolButton()
             btn.setIcon(line_icon(name, color=TEXT_PRIMARY, size=16))
             btn.setToolTip(tooltip)
-            btn.setCursor(Qt.PointingHandCursor)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(ICON_BUTTON_STYLE)
             btn.clicked.connect(signal.emit)
             self._action_buttons[name] = btn
@@ -143,7 +145,7 @@ class ToolBar(QWidget):
         save_btn = QToolButton()
         save_btn.setIcon(line_icon("save", color=TEXT_PRIMARY, size=16))
         save_btn.setToolTip("保存图片")
-        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         save_btn.setStyleSheet(ICON_BUTTON_STYLE)
         save_btn.clicked.connect(self.save_image_clicked.emit)
 
@@ -155,7 +157,7 @@ class ToolBar(QWidget):
 
         outer.addLayout(row2)
 
-    def _on_tool_toggled(self, name: str, checked: bool, signal: Signal) -> None:
+    def _on_tool_toggled(self, name: str, checked: bool, signal: Any) -> None:
         if checked:
             for n, btn in self._tool_buttons.items():
                 if n != name:
@@ -225,9 +227,8 @@ class ToolBar(QWidget):
         }
         for key, entry in mapping.items():
             entry.blockSignals(True)
-            val = params.get(key, "")
-            if val:
-                entry.setText(str(val))
+            if key in params:
+                entry.setText(str(params.get(key, "")))
             entry.blockSignals(False)
         if "fit_priority" in params:
             self.combo_priority.blockSignals(True)

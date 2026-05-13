@@ -40,7 +40,7 @@ class ChartToolBar(QWidget):
                 f"color: {TEXT_SECONDARY}; }}"
                 f"QPushButton:hover {{ background: {BG_HOVER}; color: #0f172a; }}"
             )
-            btn.setCursor(Qt.PointingHandCursor)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(callback)
             return btn
 
@@ -61,6 +61,6 @@ class ChartToolBar(QWidget):
             f"color: {TEXT_SECONDARY}; }}"
             f"QPushButton:hover {{ background: {BG_HOVER}; color: #0f172a; }}"
         )
-        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_save.clicked.connect(self.save_image_clicked.emit)
         layout.addWidget(btn_save)

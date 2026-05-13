@@ -51,17 +51,17 @@ def _process_one_file(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("tdms", type=Path, nargs="+", help="一个或多个数据文件路径（tdms/txt/csv/xlsx/xls/cor）")
+    parser.add_argument("tdms", type=Path, nargs="+", help="一个或多个数据文件路径 (tdms/txt/csv/xlsx/xls/cor)")
     parser.add_argument("--potential-formula", type=str, default="", help="电压公式，例如 -[Vgs]+0.23")
     parser.add_argument("--current-formula", type=str, default="", help="电流公式，例如 [Igs/area]/(2.4e-7+3)")
-    parser.add_argument("--e-eq", type=float, default=0.0, help="平衡电位 E_eq，Tafel 纵坐标为 η = E - E_eq")
+    parser.add_argument("--e-eq", type=float, default=0.0, help="平衡电位 E_eq，Tafel y = E - E_eq")
     parser.add_argument("--segment", type=int, default=1, help="要处理的分段序号，从 1 开始")
     parser.add_argument("--out-dir", type=Path, default=None, help="输出目录")
     parser.add_argument("--min-window", type=int, default=6, help="Tafel 最小窗口点数")
     parser.add_argument("--max-window", type=int, default=None, help="Tafel 最大窗口点数")
     parser.add_argument("--eta-range", type=lambda s: tuple(float(x) for x in s.split(",")), default=None)
     parser.add_argument("--logj-range", type=lambda s: tuple(float(x) for x in s.split(",")), default=None)
-    parser.add_argument("--min-r2", type=float, default=0.95, help="最小 R²")
+    parser.add_argument("--min-r2", type=float, default=0.95, help="最小 R2")
     parser.add_argument("--fit-priority", type=str, default="slope", choices=["slope", "r2"])
     args = parser.parse_args()
 

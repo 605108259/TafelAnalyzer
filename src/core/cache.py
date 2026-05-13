@@ -1,7 +1,9 @@
 """结果缓存：缓存键构建、载荷序列化、文件导出。"""
 from __future__ import annotations
 
+import hashlib
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -10,6 +12,56 @@ from core.serialization import fit_to_dict, prepared_to_dict
 
 if TYPE_CHECKING:
     from ui.app import TafelAnalyzerApp
+
+
+FILE_FINGERPRINT_VERSION = "file-sha256-v1"
+MISSING_FILE_FINGERPRINT_VERSION = "file-unavailable-v1"
+
+
+@lru_cache(maxsize=512)
+def _file_fingerprint_for_stat(
+    resolved_path: str,
+    file_name: str,
+    size: int,
+    mtime_ns: int,
+    ctime_ns: int,
+) -> tuple:
+    digest = hashlib.sha256()
+    with Path(resolved_path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return (
+        FILE_FINGERPRINT_VERSION,
+        file_name.lower(),
+        int(size),
+        digest.hexdigest(),
+    )
+
+
+def file_fingerprint(path: Path) -> tuple:
+    """Return a stable, path-independent file identity for cache keys.
+
+    The content digest is cached by file path and stat signature so repeated
+    autosaves do not re-read large data files while the file is unchanged.
+    """
+    file_path = Path(path)
+    try:
+        stat = file_path.stat()
+    except OSError:
+        return (MISSING_FILE_FINGERPRINT_VERSION, file_path.name.lower())
+
+    try:
+        resolved_path = str(file_path.resolve(strict=False))
+    except OSError:
+        resolved_path = str(file_path)
+
+    return _file_fingerprint_for_stat(
+        resolved_path,
+        file_path.name,
+        int(stat.st_size),
+        int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+        int(getattr(stat, "st_ctime_ns", int(stat.st_ctime * 1_000_000_000))),
+    )
 
 
 def make_result_cache_key(
@@ -27,7 +79,7 @@ def make_result_cache_key(
     fit_priority: str,
 ) -> tuple:
     return (
-        str(tdms_path),
+        file_fingerprint(tdms_path),
         potential_formula,
         current_formula,
         round(float(e_eq), 12),
@@ -62,12 +114,20 @@ def cache_key_from_json(cache_key: list) -> tuple:
 
 
 def build_cache_payload(app: TafelAnalyzerApp) -> dict:
-    from core.rendering import capture_axes_limits, capture_plot_view_state
+    from core.rendering import persist_current_plot_view_state
+
+    persist_current_plot_view_state(app)
 
     current_path = app.state.files.current_path if hasattr(app, "state") else app._app_state.get("tdms_path")
     return {
+        "cache_format_version": 2,
         "selected_paths": [str(path) for path in app._app_state["selected_paths"]],
         "current_path": str(current_path) if current_path is not None else None,
+        "chart_view_state": {
+            "active_mode": app._app_state.get("active_chart_mode"),
+            "single": app._app_state.get("single_plot_view_state"),
+            "comparison": app._app_state.get("compare_plot_view_state"),
+        },
         "file_ui_cache": app._app_state["file_ui_cache"],
         "current_result_keys": {
             file_key: cache_key_to_json(cache_key)
@@ -89,6 +149,11 @@ def build_cache_payload(app: TafelAnalyzerApp) -> dict:
                 "fit_error_by_segment": {
                     str(index): value
                     for index, value in cached.get("fit_error_by_segment", {}).items()
+                },
+                "manual_fit_regions": {
+                    str(index): value
+                    for index, value in cached.get("manual_fit_regions", {}).items()
+                    if isinstance(value, dict)
                 },
                 "selected_segment_indices": list(cached.get("selected_segment_indices", [])),
                 "active_segment_index": int(cached.get("active_segment_index", 0)),
