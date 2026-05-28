@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, cast
 from datetime import datetime
 
@@ -68,6 +69,18 @@ def _path_key(path: Path | str) -> str:
     return str(Path(path))
 
 
+def _remove_cache_path(cache_path: Path) -> None:
+    """Remove a cache entry (v2 JSON file or v3 directory)."""
+    import shutil
+    try:
+        if cache_path.is_dir():
+            shutil.rmtree(cache_path, ignore_errors=True)
+        else:
+            cache_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def _file_data_cache_key(path: Path) -> tuple | None:
     try:
         stat = path.stat()
@@ -90,20 +103,27 @@ def _resolve_formulas_for_channels(
     channels: dict,
     potential_formula: str,
     current_formula: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, list[str]]:
+    warnings: list[str] = []
+
     def try_or_default(text: str, preferred: list[str]) -> str:
         raw = text.strip()
         if raw:
             try:
                 normalize_formula(channels, raw, preferred)
                 return raw
-            except Exception:
-                pass
-        return f"[{pick_channel_name(channels, preferred)}]"
+            except Exception as exc:
+                warnings.append(str(exc))
+        try:
+            return f"[{pick_channel_name(channels, preferred)}]"
+        except Exception as exc:
+            warnings.append(str(exc))
+            return ""
 
     return (
         try_or_default(potential_formula, POTENTIAL_PREFERRED_NAMES),
         try_or_default(current_formula, CURRENT_PREFERRED_NAMES),
+        warnings,
     )
 
 
@@ -164,10 +184,120 @@ def _same_file_candidate(old_path: Path) -> Path | None:
     return None
 
 
+class CacheWriteWorker(QThread):
+    """Background worker for JSON serialization and disk I/O."""
+
+    finished = Signal()
+    error = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._mode: str = "idle"  # idle | single | v3
+        self._payload: dict | None = None
+        self._path: Path | None = None
+        self._v3_args: dict | None = None
+        self._queued_mode: str | None = None
+        self._queued_payload: dict | None = None
+        self._queued_path: Path | None = None
+        self._queued_v3_args: dict | None = None
+        self._lock = Lock()
+
+    def request_write(self, payload: dict, path: Path) -> None:
+        """Write a single JSON file (v2 format)."""
+        should_start = False
+        with self._lock:
+            if self.isRunning():
+                self._queued_mode = "single"
+                self._queued_payload = payload
+                self._queued_path = path
+                self._queued_v3_args = None
+                return
+            self._payload = payload
+            self._path = path
+            self._v3_args = None
+            self._mode = "single"
+            should_start = True
+        if should_start:
+            self.start()
+
+    def request_v3_write(self, project_dir: Path, manifest: dict, file_ui: dict,
+                         result_index: dict, comparison: list[dict],
+                         prepared_blobs: dict[str, dict],
+                         fit_blobs: dict[str, dict],
+                         hashes: dict | None = None) -> None:
+        """Write a v3 directory structure."""
+        args = {
+            "project_dir": project_dir,
+            "manifest": manifest,
+            "file_ui": file_ui,
+            "result_index": result_index,
+            "comparison": comparison,
+            "prepared_blobs": prepared_blobs,
+            "fit_blobs": fit_blobs,
+            "hashes": hashes or {},
+        }
+        should_start = False
+        with self._lock:
+            if self.isRunning():
+                self._queued_mode = "v3"
+                self._queued_payload = None
+                self._queued_path = None
+                self._queued_v3_args = args
+                return
+            self._payload = None
+            self._path = None
+            self._v3_args = args
+            self._mode = "v3"
+            should_start = True
+        if should_start:
+            self.start()
+
+    def run(self) -> None:
+        try:
+            while True:
+                with self._lock:
+                    mode = self._mode
+                    payload = self._payload
+                    path = self._path
+                    v3_args = self._v3_args
+                if mode == "v3" and v3_args:
+                    from core.cache import write_v3_project_dir
+                    new_hashes = write_v3_project_dir(
+                        v3_args["project_dir"], v3_args["manifest"], v3_args["file_ui"],
+                        v3_args["result_index"], v3_args["comparison"],
+                        v3_args["prepared_blobs"], v3_args["fit_blobs"],
+                        _hashes=v3_args["hashes"],
+                    )
+                    self._result_hashes = new_hashes
+                elif mode == "single" and payload and path:
+                    from core.cache import atomic_write_json
+                    atomic_write_json(path, payload)
+                else:
+                    break
+                with self._lock:
+                    if self._queued_mode is None:
+                        self._payload = None
+                        self._path = None
+                        self._v3_args = None
+                        self._mode = "idle"
+                        break
+                    self._mode = self._queued_mode
+                    self._payload = self._queued_payload
+                    self._path = self._queued_path
+                    self._v3_args = self._queued_v3_args
+                    self._queued_mode = None
+                    self._queued_payload = None
+                    self._queued_path = None
+                    self._queued_v3_args = None
+            self.finished.emit()
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
 class FileLoadWorker(QThread):
     """Background worker for loading file data."""
 
-    finished = Signal(object, object, object, object)  # channels, potential_f, current_f, segments
+    finished = Signal(object, object, object, object, object)  # channels, potential_f, current_f, segments, warnings
     error = Signal(str)
 
     def __init__(self, file_path: Path, potential_formula: str, current_formula: str):
@@ -180,13 +310,18 @@ class FileLoadWorker(QThread):
     def run(self):
         try:
             channels = read_data_all_channels(self.file_path)
-            formulas = self._resolve_formulas(channels)
-            segments = build_segment_infos(channels, formulas[0])
-            self.finished.emit(channels, formulas[0], formulas[1], segments)
+            pot_f, cur_f, warnings = self._resolve_formulas(channels)
+            segments = []
+            if pot_f:
+                try:
+                    segments = build_segment_infos(channels, pot_f)
+                except Exception as exc:
+                    warnings.append(str(exc))
+            self.finished.emit(channels, pot_f, cur_f, segments, warnings)
         except Exception as exc:
             self.error.emit(str(exc))
 
-    def _resolve_formulas(self, channels: dict) -> tuple[str, str]:
+    def _resolve_formulas(self, channels: dict) -> tuple[str, str, list[str]]:
         return _resolve_formulas_for_channels(
             channels,
             self.potential_formula,
@@ -203,6 +338,12 @@ class FileController(BaseAppController):
     def __init__(self, app: TafelAnalyzerApp):
         super().__init__(app)
         self._worker: FileLoadWorker | None = None
+        self._cache_writer = CacheWriteWorker(app)
+        self._cache_writer.finished.connect(self._on_cache_write_finished)
+        self._cache_writer.error.connect(
+            lambda msg: app.status_bar.setText(f"历史项目自动保存失败: {msg[:80]}")
+        )
+        self._pending_history_entry: dict | None = None
         self._autosave_timer = QTimer(app)
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(800)
@@ -230,7 +371,7 @@ class FileController(BaseAppController):
         path: Path,
         potential_formula: str,
         current_formula: str,
-    ) -> tuple[dict, str, str, list] | None:
+    ) -> tuple[dict, str, str, list, list[str]] | None:
         cache_key = _file_data_cache_key(path)
         if cache_key is None:
             return None
@@ -240,13 +381,17 @@ class FileController(BaseAppController):
         channels = entry.get("channels")
         if not isinstance(channels, dict):
             return None
-        pot_f, cur_f = _resolve_formulas_for_channels(channels, potential_formula, current_formula)
+        pot_f, cur_f, warnings = _resolve_formulas_for_channels(channels, potential_formula, current_formula)
         segments_by_formula = entry.setdefault("segments_by_formula", {})
-        segments = segments_by_formula.get(pot_f)
-        if segments is None:
-            segments = build_segment_infos(channels, pot_f)
-            segments_by_formula[pot_f] = segments
-        return channels, pot_f, cur_f, segments
+        segments = segments_by_formula.get(pot_f) if pot_f else []
+        if segments is None and pot_f:
+            try:
+                segments = build_segment_infos(channels, pot_f)
+                segments_by_formula[pot_f] = segments
+            except Exception as exc:
+                warnings.append(str(exc))
+                segments = []
+        return channels, pot_f, cur_f, segments or [], warnings
 
     def _remember_file_load(
         self,
@@ -365,9 +510,9 @@ class FileController(BaseAppController):
         )
         cached = self._cached_file_load(path, formulas[0], formulas[1])
         if cached is not None:
-            channels, pot_f, cur_f, segments = cached
+            channels, pot_f, cur_f, segments, warnings = cached
             app.status_bar.setText(f"已从内存缓存加载 {path.name}")
-            self._on_load_finished(channels, pot_f, cur_f, segments, path, generation)
+            self._on_load_finished(channels, pot_f, cur_f, segments, warnings, path, generation)
             return
         self._worker = FileLoadWorker(path, formulas[0], formulas[1])
         self._worker.generation = generation
@@ -375,11 +520,11 @@ class FileController(BaseAppController):
         self._worker.error.connect(self._on_load_error_from_worker)
         self._worker.start()
 
-    def _on_load_finished_from_worker(self, channels, pot_f, cur_f, segments) -> None:
+    def _on_load_finished_from_worker(self, channels, pot_f, cur_f, segments, warnings) -> None:
         worker = cast(FileLoadWorker | None, self.sender())
         if worker is None:
             return
-        self._on_load_finished(channels, pot_f, cur_f, segments, worker.file_path, worker.generation)
+        self._on_load_finished(channels, pot_f, cur_f, segments, warnings, worker.file_path, worker.generation)
 
     def _on_load_error_from_worker(self, msg) -> None:
         worker = cast(FileLoadWorker | None, self.sender())
@@ -387,7 +532,16 @@ class FileController(BaseAppController):
             return
         self._on_load_error(msg, worker.file_path, worker.generation)
 
-    def _on_load_finished(self, channels, pot_f, cur_f, segments, expected_path=None, generation: int | None = None) -> None:
+    def _on_load_finished(
+        self,
+        channels,
+        pot_f,
+        cur_f,
+        segments,
+        formula_warnings=None,
+        expected_path=None,
+        generation: int | None = None,
+    ) -> None:
         app = self.app
         if expected_path is not None and app._app_state.get("tdms_path") != expected_path:
             return
@@ -395,6 +549,8 @@ class FileController(BaseAppController):
             return
         if expected_path is not None:
             self._remember_file_load(Path(expected_path), channels, pot_f, segments)
+        if hasattr(app.toolbar, "set_available_channels"):
+            app.toolbar.set_available_channels(list(channels.keys()))
         scheme_name = app.state.palette.active_name
         segment_colors = {}
         for s in segments:
@@ -441,6 +597,8 @@ class FileController(BaseAppController):
                 for key in ("e_eq", "window_range", "eta_range", "logj_range", "min_r2", "fit_priority")
                 if key in cached_entry
             }
+            if not cached_params:
+                cached_params = dict(app._app_state.get("saved_parameter_defaults") or {})
             if cached_params:
                 app.toolbar.set_params(cached_params)
         finally:
@@ -456,12 +614,18 @@ class FileController(BaseAppController):
             self._begin_new_project()
         if app._app_state.pop("_suppress_next_load_autosave", False):
             app.views.refresh_history_panel()
-        app.status_bar.setText(f"已加载 {path.name}")
+        if not pot_f or not cur_f:
+            app.status_bar.setText(
+                f"已加载 {path.name}，检测到 {len(channels)} 个通道；请选择电位/电流通道后点击拟合"
+            )
+        else:
+            app.status_bar.setText(f"已加载 {path.name}")
 
         # Clear chart
         app.chart.clear_figure()
         self.file_loaded.emit()
-        app.fitting.run_fit()
+        if pot_f and cur_f and segments:
+            app.fitting.run_fit()
         if hasattr(app, "history_workspace"):
             app.history_workspace.set_busy(False)
 
@@ -479,6 +643,16 @@ class FileController(BaseAppController):
 
     def on_file_removed(self, path: Path) -> None:
         app = self.app
+        try:
+            from core.cache import file_fingerprint
+            removed_fingerprint = file_fingerprint(path)
+            app._app_state["result_cache"] = {
+                cache_key: cached
+                for cache_key, cached in app._app_state.get("result_cache", {}).items()
+                if not cache_key or cache_key[0] != removed_fingerprint
+            }
+        except Exception:
+            pass
         app.state.files.remove_path(path)
         app.state.comparison.remove_file_items(path)
         app.views.refresh_file_list()
@@ -514,10 +688,12 @@ class FileController(BaseAppController):
             existing_fit = app._app_state.get("fit_by_segment", {}).get(index)
             if existing_fit is not None:
                 self._rerender_current()
+                self.schedule_project_autosave()
             else:
                 app.fitting.run_fit()
         else:
             self._rerender_current()
+            self.schedule_project_autosave()
 
     def on_segment_color(self, index: int, _dummy: str = "") -> None:
         from PySide6.QtWidgets import QColorDialog
@@ -558,10 +734,11 @@ class FileController(BaseAppController):
         if cache_path is None:
             from ui.settings import HISTORY_CACHE_DIR
             safe_title = re.sub(r'[<>:"/\\|?*]+', "-", project_title).strip() or project_id
-            cache_path = HISTORY_CACHE_DIR / f"{safe_title}.json"
+            cache_path = HISTORY_CACHE_DIR / safe_title
         app._app_state["current_project_id"] = project_id
         app._app_state["current_project_title"] = project_title
         app._app_state["current_project_cache_path"] = str(cache_path)
+        app._app_state.pop("_last_cache_payload_hash", None)
 
     def _adopt_history_project_for_cache(self, cache_path: Path) -> bool:
         target = str(Path(cache_path))
@@ -692,47 +869,107 @@ class FileController(BaseAppController):
             self._cache_current_analysis_state()
             if app._app_state.get("current_project_id") is None:
                 self._begin_new_project()
-            from core.cache import build_cache_payload
-            from ui.settings import HISTORY_CACHE_DIR, save_app_settings
+            from core.cache import (
+                build_v3_manifest, build_v3_file_ui, build_v3_result_index,
+                build_v3_comparison, build_v3_blobs, payload_hash,
+            )
+            from ui.settings import HISTORY_CACHE_DIR
             HISTORY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
             project_id = str(app._app_state.get("current_project_id"))
             title = str(app._app_state.get("current_project_title") or self._project_timestamp())
-            cache_path = Path(app._app_state.get("current_project_cache_path") or (HISTORY_CACHE_DIR / f"{title}.json"))
-            app._app_state["current_project_cache_path"] = str(cache_path)
-            payload = build_cache_payload(app)
-            cache_path.write_text(
-                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-                encoding="utf-8",
-            )
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            entry = {
+            safe_title = re.sub(r'[<>:"/\\|?*]+', "-", title).strip() or project_id
+            project_dir = HISTORY_CACHE_DIR / safe_title
+            # Detect v2→v3 migration: old path was a .json file
+            old_path = app._app_state.get("current_project_cache_path", "")
+            if old_path and old_path.endswith(".json") and Path(old_path).is_file():
+                app._app_state["_old_v2_cache_path"] = old_path
+            app._app_state["current_project_cache_path"] = str(project_dir)
+
+            # Build all v3 components on main thread (fast dict construction)
+            manifest = build_v3_manifest(app)
+            manifest_hash = payload_hash(manifest)
+            if manifest_hash == app._app_state.get("_last_manifest_hash"):
+                # Check if other components changed
+                file_ui = build_v3_file_ui(app)
+                result_index = build_v3_result_index(app)
+                comparison = build_v3_comparison(app)
+                prepared_blobs, fit_blobs = build_v3_blobs(app)
+                prepared_hashes = {
+                    key: payload_hash(value)
+                    for key, value in prepared_blobs.items()
+                }
+                fit_hashes = {
+                    key: payload_hash(value)
+                    for key, value in fit_blobs.items()
+                }
+                coarse = payload_hash({
+                    "file_ui": file_ui, "result_index": result_index,
+                    "comparison": comparison,
+                    "prepared_hashes": prepared_hashes,
+                    "fit_hashes": fit_hashes,
+                })
+                if coarse == app._app_state.get("_last_cache_coarse_hash"):
+                    return
+                app._app_state["_last_cache_coarse_hash"] = coarse
+            else:
+                app._app_state["_last_manifest_hash"] = manifest_hash
+                file_ui = build_v3_file_ui(app)
+                result_index = build_v3_result_index(app)
+                comparison = build_v3_comparison(app)
+                prepared_blobs, fit_blobs = build_v3_blobs(app)
+                app._app_state.pop("_last_cache_coarse_hash", None)
+
+            self._pending_history_entry = {
                 "id": project_id,
                 "title": title,
-                "updated_at": now,
-                "cache_path": str(cache_path),
+                "cache_path": str(project_dir),
                 "files": [str(path) for path in selected_paths],
             }
-            history = [entry]
-            history.extend(app._app_state.get("project_history", []))
-            result: list[dict] = []
-            seen: set[str] = set()
-            for item in history:
-                item_id = str(item.get("id") or item.get("cache_path") or "")
-                if not item_id or item_id in seen:
-                    continue
-                seen.add(item_id)
-                result.append(item)
-                if len(result) >= 80:
-                    break
-            app._app_state["project_history"] = result
-            app.views.refresh_history_panel()
-            save_app_settings(app)
+            self._cache_writer.request_v3_write(
+                project_dir, manifest, file_ui, result_index, comparison,
+                prepared_blobs, fit_blobs,
+                hashes=app._app_state.get("_v3_file_hashes"),
+            )
         except Exception as exc:
             try:
                 app.status_bar.setText(f"历史项目自动保存失败: {str(exc)[:80]}")
             except Exception:
                 pass
             return
+
+    def _on_cache_write_finished(self) -> None:
+        app = self.app
+        # Store v3 file hashes from worker
+        if hasattr(self._cache_writer, "_result_hashes"):
+            app._app_state["_v3_file_hashes"] = self._cache_writer._result_hashes
+        # Clean up old v2 file if project was migrated
+        old_v2 = app._app_state.pop("_old_v2_cache_path", None)
+        if old_v2:
+            _remove_cache_path(Path(old_v2))
+        entry = self._pending_history_entry
+        if entry is None:
+            return
+        self._pending_history_entry = None
+        entry["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        history = [entry]
+        history.extend(app._app_state.get("project_history", []))
+        result: list[dict] = []
+        seen: set[str] = set()
+        for item in history:
+            item_id = str(item.get("id") or item.get("cache_path") or "")
+            if not item_id or item_id in seen:
+                continue
+            seen.add(item_id)
+            result.append(item)
+            if len(result) >= 80:
+                break
+        app._app_state["project_history"] = result
+        app.views.refresh_history_panel()
+        try:
+            from ui.settings import save_app_settings
+            save_app_settings(app)
+        except Exception:
+            pass
 
     def schedule_project_autosave(self) -> None:
         if self.app._app_state.get("selected_paths"):
@@ -825,7 +1062,14 @@ class FileController(BaseAppController):
                 self._begin_new_project()
             else:
                 self._autosave_timer.stop()
-            payload = json.loads(Path(cache_path).read_text(encoding="utf-8"))
+
+            # Detect v3 directory vs v2 single file
+            if cache_path.is_dir() and (cache_path / "manifest.json").exists():
+                payload = c.load_v3_project_dir(cache_path)
+            elif cache_path.is_dir():
+                raise FileNotFoundError(f"缓存目录缺少 manifest.json: {cache_path}")
+            else:
+                payload = json.loads(Path(cache_path).read_text(encoding="utf-8"))
             # Restore paths
             paths = [Path(p) for p in payload.get("selected_paths", [])]
             path_candidates = list(paths)
@@ -866,6 +1110,16 @@ class FileController(BaseAppController):
             # Restore result cache
             result_cache = {}
             for item in payload.get("result_cache", []):
+                prepared_by_segment_payload = {
+                    int(k): v
+                    for k, v in item.get("prepared_by_segment", {}).items()
+                    if c.is_prepared_payload(v)
+                }
+                prepared_payload = item.get("prepared")
+                if not c.is_prepared_payload(prepared_payload):
+                    prepared_payload = next(iter(prepared_by_segment_payload.values()), None)
+                if prepared_payload is None:
+                    continue
                 cache_key = c.cache_key_from_json(item["key"])
                 if cache_key and isinstance(cache_key[0], str):
                     key_path = self._remap_cached_path(cache_key[0], path_map)
@@ -873,11 +1127,11 @@ class FileController(BaseAppController):
                 else:
                     remapped_key = cache_key
                 result_cache[remapped_key] = {
-                    "prepared": prepared_from_dict(item["prepared"]),
+                    "prepared": prepared_from_dict(prepared_payload),
                     "fit": fit_from_dict(item["fit"]) if item.get("fit") else None,
                     "prepared_by_segment": {
-                        int(k): prepared_from_dict(v)
-                        for k, v in item.get("prepared_by_segment", {}).items()
+                        k: prepared_from_dict(v)
+                        for k, v in prepared_by_segment_payload.items()
                     },
                     "fit_by_segment": {
                         int(k): fit_from_dict(v)
@@ -907,7 +1161,7 @@ class FileController(BaseAppController):
                     visible=bool(item.get("visible", True)),
                 )
                 for item in payload.get("comparison_items", [])
-                if item.get("prepared") is not None
+                if c.is_prepared_payload(item.get("prepared"))
             ]
             app.comparison.refresh_list()
             if is_history_restore:
@@ -945,10 +1199,7 @@ class FileController(BaseAppController):
             history.append(entry)
         app._app_state["project_history"] = history
         if removed_cache_path is not None:
-            try:
-                removed_cache_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            _remove_cache_path(removed_cache_path)
         app.views.refresh_history_panel()
         try:
             from ui.settings import save_app_settings
@@ -962,10 +1213,7 @@ class FileController(BaseAppController):
             cache_path = str(entry.get("cache_path") or "")
             if not cache_path:
                 continue
-            try:
-                Path(cache_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            _remove_cache_path(Path(cache_path))
         app._app_state["project_history"] = []
         app.views.refresh_history_panel()
         try:

@@ -140,6 +140,99 @@ class ComparisonStateTests(unittest.TestCase):
         self.assertEqual(state.comparison.item_data()[0]["segment_label"], "")
 
 
+    def test_comparison_upsert_refreshes_data_and_preserves_row_state(self) -> None:
+        import numpy as np
+        from core.types import ComparisonItem, PreparedSeries, SegmentInfo
+        from ui.state import AppState
+
+        def prepared(value: float) -> PreparedSeries:
+            return PreparedSeries(
+                raw_e=np.array([value]),
+                raw_j=np.array([1.0]),
+                e=np.array([value]),
+                j=np.array([1.0]),
+                eta=np.array([value]),
+                e_label="E",
+                j_label="j",
+                tafel_y_label="eta",
+                potential_channel="E",
+                current_channel="j",
+                potential_formula="[E]",
+                current_formula="[j]",
+                e_eq=0.0,
+                segment=SegmentInfo(index=0, start=0, end=1),
+            )
+
+        state = AppState()
+        first = ComparisonItem(
+            item_id="file::0",
+            file_path=Path("file.cor"),
+            file_name="old",
+            segment_index=0,
+            prepared=prepared(1.0),
+            fit=None,
+            label="custom",
+            color="#111111",
+            visible=False,
+        )
+        second = ComparisonItem(
+            item_id="file::0",
+            file_path=Path("file.cor"),
+            file_name="new",
+            segment_index=0,
+            prepared=prepared(2.0),
+            fit=None,
+            label="new-default",
+            color="#222222",
+            visible=True,
+        )
+
+        self.assertTrue(state.comparison.upsert(first))
+        self.assertFalse(state.comparison.upsert(second))
+
+        item = state.comparison.item_by_id("file::0")
+        self.assertIsNotNone(item)
+        self.assertEqual(item.file_name, "new")
+        self.assertEqual(item.label, "custom")
+        self.assertEqual(item.color, "#111111")
+        self.assertFalse(item.visible)
+        self.assertTrue(np.allclose(item.prepared.e, np.array([2.0])))
+
+    def test_comparison_set_all_visible_updates_every_item(self) -> None:
+        from core.types import ComparisonItem
+        from ui.state import AppState
+
+        state = AppState()
+        state.comparison.add(ComparisonItem(
+            item_id="file::0",
+            file_path=Path("file.cor"),
+            file_name="file",
+            segment_index=0,
+            prepared=None,
+            fit=None,
+            label="first",
+            color="#111111",
+            visible=True,
+        ))
+        state.comparison.add(ComparisonItem(
+            item_id="file::1",
+            file_path=Path("file.cor"),
+            file_name="file",
+            segment_index=1,
+            prepared=None,
+            fit=None,
+            label="second",
+            color="#222222",
+            visible=False,
+        ))
+
+        state.comparison.set_all_visible(True)
+        self.assertTrue(all(item.visible for item in state.comparison.items))
+
+        state.comparison.set_all_visible(False)
+        self.assertTrue(all(not item.visible for item in state.comparison.items))
+
+
 class InteractionStateTests(unittest.TestCase):
     def test_manual_session_is_bound_to_current_path_and_generation(self) -> None:
         from ui.state import AppState

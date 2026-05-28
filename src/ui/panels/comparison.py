@@ -73,7 +73,7 @@ class ComparisonItemWidget(QWidget):
 
         self.cb = CheckmarkBox(visible)
         self.cb.stateChanged.connect(
-            lambda checked: self.visibility_toggled.emit(item_id, checked)
+            lambda checked: self.visibility_toggled.emit(self.item_id, checked)
         )
         layout.addWidget(self.cb)
 
@@ -102,7 +102,7 @@ class ComparisonItemWidget(QWidget):
         self.color_btn.setStatusTip("更改颜色")
         self.color_btn.setToolTipDuration(5000)
         self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.color_btn.clicked.connect(lambda: self.color_clicked.emit(item_id))
+        self.color_btn.clicked.connect(lambda: self.color_clicked.emit(self.item_id))
         layout.addWidget(self.color_btn)
 
         self.rm_btn = QToolButton()
@@ -112,7 +112,7 @@ class ComparisonItemWidget(QWidget):
         self.rm_btn.setToolTipDuration(5000)
         self.rm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rm_btn.setStyleSheet(ICON_BUTTON_STYLE)
-        self.rm_btn.clicked.connect(lambda: self.remove_clicked.emit(item_id))
+        self.rm_btn.clicked.connect(lambda: self.remove_clicked.emit(self.item_id))
         layout.addWidget(self.rm_btn)
 
         for w in (self.cb, self.name_edit, self.color_btn, self.rm_btn):
@@ -155,6 +155,24 @@ class ComparisonItemWidget(QWidget):
         self.name_edit.setText(display_name)
         self.segment_lbl.setText(segment_label)
         self.segment_lbl.setVisible(bool(segment_label))
+
+    def update_data(self, data: dict) -> None:
+        self.item_id = data["item_id"]
+        display_name = data.get("edit_name") or data["display_name"]
+        self.set_display_name(display_name, data.get("segment_label", ""))
+        self._color = data["color"]
+        self.color_btn.setStyleSheet(swatch_button_style(self._color, radius=10, border_width=2))
+        self.cb.blockSignals(True)
+        self.cb.setChecked(bool(data["visible"]))
+        self.cb.blockSignals(False)
+        file_name = data.get("file_name", "")
+        segment_index = data.get("segment_index", -1)
+        if file_name:
+            tip = file_name
+            if segment_index >= 0:
+                tip += f" - 第{segment_index + 1}段"
+            self.setToolTip(tip)
+            self.setToolTipDuration(10000)
 
     def set_highlighted(self, on: bool):
         self._highlighted = on
@@ -201,6 +219,8 @@ class ComparisonPanel(QWidget):
     item_clicked = Signal(int)
 
     # Action signals
+    select_all_clicked = Signal()
+    select_none_clicked = Signal()
     clear_all_clicked = Signal()
     move_up_clicked = Signal()
     move_down_clicked = Signal()
@@ -227,6 +247,20 @@ class ComparisonPanel(QWidget):
         title_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 13px; font-weight: bold;")
         header.addWidget(title_lbl)
         header.addStretch()
+
+        for text, tip, sig in [
+            ("全选", "显示全部对比项", self.select_all_clicked),
+            ("全不选", "隐藏全部对比项", self.select_none_clicked),
+        ]:
+            btn = QPushButton(text)
+            btn.setToolTip(tip)
+            btn.setStatusTip(tip)
+            btn.setAccessibleName(tip)
+            btn.setToolTipDuration(5000)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(SMALL_BUTTON_STYLE)
+            btn.clicked.connect(sig.emit)
+            header.addWidget(btn)
 
         for name, tip, sig in [
             ("arrow-up", "上移", self.move_up_clicked),
@@ -305,6 +339,15 @@ class ComparisonPanel(QWidget):
 
     def set_items(self, items: list[dict]) -> None:
         """items: list of {item_id, edit_name, segment_label, color, visible}"""
+        if self.item_list.count() == len(items):
+            for row, data in enumerate(items):
+                widget = self.item_list.itemWidget(self.item_list.item(row))
+                if isinstance(widget, ComparisonItemWidget):
+                    widget.update_data(data)
+            if 0 <= self._highlighted_row < self.item_list.count():
+                self.set_highlighted(self._highlighted_row)
+            return
+        scroll_value = self.item_list.verticalScrollBar().value()
         self._clear_items()
         self.item_list.clear()
         for data in items:
@@ -336,6 +379,15 @@ class ComparisonPanel(QWidget):
             w = self.item_list.itemWidget(self.item_list.item(self._highlighted_row))
             if isinstance(w, ComparisonItemWidget):
                 w.set_highlighted(True)
+        self.item_list.verticalScrollBar().setValue(scroll_value)
+
+    def _same_item_order(self, items: list[dict]) -> bool:
+        if self.item_list.count() != len(items):
+            return False
+        return all(
+            self.item_id_at(row) == data.get("item_id")
+            for row, data in enumerate(items)
+        )
 
     def _clear_items(self) -> None:
         for row in range(self.item_list.count()):
@@ -354,6 +406,15 @@ class ComparisonPanel(QWidget):
             if isinstance(widget, ComparisonItemWidget) and widget.item_id == item_id:
                 widget.set_display_name(display_name, segment_label)
                 return
+
+    def item_id_at(self, row: int) -> str:
+        if row < 0 or row >= self.item_list.count():
+            return ""
+        widget = self.item_list.itemWidget(self.item_list.item(row))
+        return widget.item_id if isinstance(widget, ComparisonItemWidget) else ""
+
+    def move_row(self, from_row: int, to_row: int) -> bool:
+        return False
 
     def set_highlighted(self, row: int) -> None:
         """Set which row is highlighted (visually, no selection box)."""

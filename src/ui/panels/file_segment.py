@@ -47,10 +47,10 @@ class FileListItem(QWidget):
         self.name_edit.editingFinished.connect(self._finish_rename)
         layout.addWidget(self.name_edit, stretch=1)
 
-        if is_processed:
-            badge = QLabel("✓")
-            badge.setStyleSheet(f"color: {SUCCESS}; font-weight: bold; font-size: 12px;")
-            layout.addWidget(badge)
+        self.badge = QLabel("✓")
+        self.badge.setStyleSheet(f"color: {SUCCESS}; font-weight: bold; font-size: 12px;")
+        self.badge.setVisible(is_processed)
+        layout.addWidget(self.badge)
 
         btn = QPushButton("×")
         btn.setFixedSize(22, 22)
@@ -73,6 +73,14 @@ class FileListItem(QWidget):
         self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.name_edit.setFocus(Qt.FocusReason.MouseFocusReason)
         self.name_edit.selectAll()
+
+    def set_display_name(self, display_name: str) -> None:
+        self._display_name = display_name
+        if self.name_edit.isReadOnly():
+            self.name_edit.setText(display_name)
+
+    def set_processed(self, is_processed: bool) -> None:
+        self.badge.setVisible(bool(is_processed))
 
     def _finish_rename(self) -> None:
         if self.name_edit.isReadOnly():
@@ -375,26 +383,91 @@ class FileSegmentPanel(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
-            self._file_paths.remove(current)
-            self._processed.discard(str(current))
-            self._rebuild_file_list()
             self.file_removed.emit(current)
 
     def _rebuild_file_list(self):
+        scroll_value = self.file_list.verticalScrollBar().value()
+        self._clear_file_widgets()
         self.file_list.clear()
         for path in self._file_paths:
-            item = QListWidgetItem()
-            display_name = self._file_names.get(str(path), path.stem)
-            widget = FileListItem(path, display_name, str(path) in self._processed)
-            widget.remove_clicked.connect(self._on_file_remove)
-            widget.renamed.connect(self._on_file_renamed)
-            item.setSizeHint(widget.sizeHint())
-            self.file_list.addItem(item)
-            self.file_list.setItemWidget(item, widget)
-        processed_count = len(self._processed)
+            self._append_file_row(path)
+        self._update_file_count()
+        self._update_file_highlight()
+        self.file_list.verticalScrollBar().setValue(scroll_value)
+
+    def _clear_file_widgets(self) -> None:
+        for row in range(self.file_list.count()):
+            item = self.file_list.item(row)
+            widget = self.file_list.itemWidget(item)
+            if widget is None:
+                continue
+            self.file_list.removeItemWidget(item)
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
+
+    def _append_file_row(self, path: Path) -> None:
+        item = QListWidgetItem()
+        display_name = self._file_names.get(str(path), path.stem)
+        widget = FileListItem(path, display_name, str(path) in self._processed)
+        widget.remove_clicked.connect(self._on_file_remove)
+        widget.renamed.connect(self._on_file_renamed)
+        item.setSizeHint(widget.sizeHint())
+        self.file_list.addItem(item)
+        self.file_list.setItemWidget(item, widget)
+
+    def _remove_file_row(self, row: int) -> None:
+        if row < 0 or row >= self.file_list.count():
+            return
+        item = self.file_list.item(row)
+        widget = self.file_list.itemWidget(item)
+        if widget is not None:
+            self.file_list.removeItemWidget(item)
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
+        self.file_list.takeItem(row)
+
+    def _row_for_path(self, path: Path) -> int:
+        for row, candidate in enumerate(self._file_paths):
+            if candidate == path:
+                return row
+        return -1
+
+    def _update_file_count(self) -> None:
+        processed_count = sum(1 for path in self._file_paths if str(path) in self._processed)
         total = len(self._file_paths)
         self.file_count_label.setText(f"文件 ({processed_count}/{total})")
-        self._update_file_highlight()
+
+    def _update_file_row(self, row: int, path: Path) -> None:
+        if row < 0 or row >= self.file_list.count():
+            return
+        item = self.file_list.item(row)
+        widget = self.file_list.itemWidget(item)
+        if not isinstance(widget, FileListItem) or widget.file_path != path:
+            self._rebuild_file_list()
+            return
+        widget.set_display_name(self._file_names.get(str(path), path.stem))
+        widget.set_processed(str(path) in self._processed)
+        item.setSizeHint(widget.sizeHint())
+
+    def _sync_file_rows_incremental(self, old_paths: list[Path], new_paths: list[Path]) -> bool:
+        if self.file_list.count() != len(old_paths):
+            return False
+        survivors = [path for path in old_paths if path in new_paths]
+        if new_paths[:len(survivors)] != survivors:
+            return False
+        scroll_value = self.file_list.verticalScrollBar().value()
+        survivor_set = set(survivors)
+        for row in range(len(old_paths) - 1, -1, -1):
+            if old_paths[row] not in survivor_set:
+                self._remove_file_row(row)
+        for path in new_paths[len(survivors):]:
+            self._append_file_row(path)
+        for row, path in enumerate(new_paths):
+            self._update_file_row(row, path)
+        self.file_list.verticalScrollBar().setValue(scroll_value)
+        return True
 
     def _on_file_remove(self, path: Path):
         confirm = QMessageBox.question(
@@ -402,9 +475,6 @@ class FileSegmentPanel(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
-            self._file_paths.remove(path)
-            self._processed.discard(str(path))
-            self._rebuild_file_list()
             self.file_removed.emit(path)
 
     def _on_file_renamed(self, path: Path, new_name: str) -> None:
@@ -412,17 +482,28 @@ class FileSegmentPanel(QWidget):
         self.file_renamed.emit(path, new_name)
 
     def set_file_paths(self, paths: list[Path], processed: set[str], *, names: dict[str, str] | None = None) -> None:
+        old_paths = list(self._file_paths)
         self._file_paths = list(paths)
         self._processed = set(processed)
         if names is not None:
             self._file_names = dict(names)
         for p in self._file_paths:
             self._file_names.setdefault(str(p), p.stem)
-        self._rebuild_file_list()
+        if old_paths != self._file_paths:
+            if not self._sync_file_rows_incremental(old_paths, self._file_paths):
+                self._rebuild_file_list()
+                return
+        else:
+            for row, path in enumerate(self._file_paths):
+                self._update_file_row(row, path)
+        self._update_file_count()
+        self._update_file_highlight()
 
     def set_processed(self, path: Path) -> None:
         self._processed.add(str(path))
-        self._rebuild_file_list()
+        self._update_file_row(self._row_for_path(path), path)
+        self._update_file_count()
+        self._update_file_highlight()
 
     def set_current_file(self, path: Path) -> None:
         try:

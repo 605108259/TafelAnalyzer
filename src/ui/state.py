@@ -62,6 +62,8 @@ def create_initial_state() -> dict[str, Any]:
         "comparison_mode": False,
         "comparison_items": [],
         "comparison_highlight_row": -1,
+        "comparison_lsv_style": "line_marker",
+        "comparison_tafel_fit_window": False,
         "palette_schemes": {
             DEFAULT_SCHEME_NAME: {str(i): color for i, color in enumerate(COMPARISON_COLORS)}
         },
@@ -338,6 +340,23 @@ class ComparisonState:
         self.items.append(item)
         return True
 
+    def upsert(self, item: ComparisonItem) -> bool:
+        """Add a new item or refresh data for an existing item.
+
+        Returns True when inserted, False when an existing row was updated.
+        User-facing row state (label/color/visibility) is preserved on update.
+        """
+        for index, existing in enumerate(self.items):
+            if existing.item_id != item.item_id:
+                continue
+            item.label = existing.label
+            item.color = existing.color
+            item.visible = existing.visible
+            self.items[index] = item
+            return False
+        self.items.append(item)
+        return True
+
     def remove(self, item_id: str) -> None:
         removed_index = next((i for i, item in enumerate(self.items) if item.item_id == item_id), -1)
         if removed_index < 0:
@@ -363,12 +382,14 @@ class ComparisonState:
         self.raw["comparison_items"] = []
         self.set_highlight(-1)
 
-    def move_highlight(self, delta: int) -> None:
+    def move_highlight(self, delta: int) -> tuple[int, int] | None:
         row = self.highlight_row
         target = row + delta
         if 0 <= row < len(self.items) and 0 <= target < len(self.items):
             self.items[row], self.items[target] = self.items[target], self.items[row]
             self.set_highlight(target)
+            return row, target
+        return None
 
     def rename(self, item_id: str, new_name: str) -> str:
         item = self.item_by_id(item_id)
@@ -384,6 +405,11 @@ class ComparisonState:
         item = self.item_by_id(item_id)
         if item is not None:
             item.visible = bool(visible)
+
+    def set_all_visible(self, visible: bool) -> None:
+        value = bool(visible)
+        for item in self.items:
+            item.visible = value
 
     def set_color(self, item_id: str, color: str) -> None:
         item = self.item_by_id(item_id)

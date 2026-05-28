@@ -10,6 +10,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 from matplotlib.widgets import RectangleSelector
 
+from core.data_cleaning import valid_measurement_mask
 from core.types import PreparedSeries, TafelFit
 from core.render_styles import (
     LINEWIDTH_ACTIVE, LINEWIDTH_INACTIVE, LINEWIDTH_DEFAULT,
@@ -87,6 +88,33 @@ def compute_tafel_points(prepared: PreparedSeries) -> tuple[np.ndarray, np.ndarr
     return x[order], y[order]
 
 
+def clean_fit_plot_data(fit: TafelFit) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    x = np.asarray(fit.x_log10_j, dtype=float).reshape(-1)
+    y = np.asarray(fit.y_e, dtype=float).reshape(-1)
+    selected = np.asarray(fit.selected_mask, dtype=bool).reshape(-1)
+    source = np.asarray(fit.source_indices, dtype=int).reshape(-1)
+    n = min(x.size, y.size, selected.size, source.size)
+    x = x[:n]
+    y = y[:n]
+    selected = selected[:n]
+    source = source[:n]
+    valid = valid_measurement_mask(x, y)
+    return x[valid], y[valid], selected[valid], source[valid]
+
+
+def clean_fit_plot_arrays(fit: TafelFit) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    x, y, selected, _source = clean_fit_plot_data(fit)
+    return x, y, selected
+
+
+def valid_fit_source_indices(fit: TafelFit, prepared: PreparedSeries) -> np.ndarray:
+    selected = np.asarray(fit.selected_mask, dtype=bool).reshape(-1)
+    source = np.asarray(fit.source_indices, dtype=int).reshape(-1)
+    n = min(selected.size, source.size)
+    indices = source[:n][selected[:n]]
+    return indices[(indices >= 0) & (indices < int(prepared.e.size))]
+
+
 MULTI_SEGMENT_TITLE = "多段电化学数据"
 
 
@@ -137,7 +165,7 @@ def _render_ej_plot(
         )
         segment_fit = fit_by_segment.get(segment_index)
         if segment_fit is not None:
-            fit_indices = segment_fit.source_indices[segment_fit.selected_mask]
+            fit_indices = valid_fit_source_indices(segment_fit, segment_prepared)
             if fit_indices.size:
                 ax.scatter(
                     segment_prepared.e[fit_indices],
@@ -184,9 +212,9 @@ def _render_tafel_plot(
                     zorder=z,
                 )
         else:
-            x_seg = segment_fit.x_log10_j
-            y_seg = segment_fit.y_e
-            mask = segment_fit.selected_mask
+            x_seg, y_seg, mask = clean_fit_plot_arrays(segment_fit)
+            if not x_seg.size:
+                continue
             ax.scatter(
                 x_seg[~mask],
                 y_seg[~mask],
@@ -342,12 +370,11 @@ def enable_draggable_legend(legend) -> None:
     if legend is None:
         return
     try:
-        legend.set_draggable(True, use_blit=False, update="bbox")
-    except TypeError:
-        try:
-            legend.set_draggable(True)
-        except Exception:
-            pass
+        legend.set_draggable(False)
+    except Exception:
+        pass
+    try:
+        legend.set_picker(True)
     except Exception:
         pass
 
@@ -357,6 +384,14 @@ def capture_legend_state(axis) -> dict | None:
     if legend is None:
         return None
     state_data: dict[str, object] = {"loc": getattr(legend, "_loc", None)}
+    try:
+        canvas = axis.figure.canvas
+        renderer = canvas.get_renderer()
+        extent = legend.get_window_extent(renderer=renderer).transformed(axis.transAxes.inverted())
+        state_data["anchor"] = [float(extent.x0), float(extent.y0)]
+        return state_data
+    except Exception:
+        pass
     try:
         bbox_anchor = legend.get_bbox_to_anchor()
         if bbox_anchor is not None:
@@ -375,6 +410,15 @@ def apply_legend_state(app: TafelAnalyzerApp, axis, legend_state: dict | None) -
         return
     if legend_state:
         try:
+            anchor = legend_state.get("anchor")
+            if isinstance(anchor, (list, tuple)) and len(anchor) == 2 and all(np.isfinite(anchor)):
+                if hasattr(legend, "set_loc"):
+                    legend.set_loc("lower left")
+                else:
+                    legend._loc = 3
+                legend.set_bbox_to_anchor((float(anchor[0]), float(anchor[1])), transform=axis.transAxes)
+                enable_draggable_legend(legend)
+                return
             loc = legend_state.get("loc")
             if loc is not None:
                 if hasattr(legend, "set_loc"):

@@ -286,8 +286,10 @@ class HistoryWorkspace(QWidget):
         cache_path = Path(cache_path_text)
         if not cache_path.exists():
             return {}, "缓存文件不存在"
+        manifest_path = cache_path / "manifest.json" if cache_path.is_dir() else None
         try:
-            stat = cache_path.stat()
+            stat_target = manifest_path if manifest_path is not None and manifest_path.exists() else cache_path
+            stat = stat_target.stat()
             signature = (int(stat.st_mtime_ns), int(stat.st_size))
         except OSError:
             signature = None
@@ -297,9 +299,41 @@ class HistoryWorkspace(QWidget):
             return cached[1], cached[2]
 
         try:
-            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cache_path.is_dir():
+                payload = self._load_v3_preview_payload(cache_path)
+            else:
+                payload = json.loads(cache_path.read_text(encoding="utf-8"))
             result = (signature, payload if isinstance(payload, dict) else {}, "")
         except Exception as exc:
             result = (signature, {}, f"缓存文件无法读取: {exc}")
         self._payload_cache[cache_path_text] = result
         return result[1], result[2]
+
+    def _load_v3_preview_payload(self, cache_dir: Path) -> dict[str, Any]:
+        manifest_path = cache_dir / "manifest.json"
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"历史项目目录缺少 manifest.json: {cache_dir}")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        file_ui: dict[str, Any] = {}
+        file_ui_path = cache_dir / "file_ui.json"
+        if file_ui_path.exists():
+            raw = json.loads(file_ui_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                file_ui = raw
+
+        comparison_items: list[Any] = []
+        comparison_path = cache_dir / "comparison.json"
+        if comparison_path.exists():
+            raw = json.loads(comparison_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                comparison_items = raw.get("items", [])
+
+        return {
+            "cache_format_version": manifest.get("cache_format_version", 3),
+            "selected_paths": manifest.get("selected_paths", []),
+            "current_path": manifest.get("current_path"),
+            "chart_view_state": manifest.get("chart_view_state", {}),
+            "file_ui_cache": file_ui,
+            "comparison_items": comparison_items,
+        }

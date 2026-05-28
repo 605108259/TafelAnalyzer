@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from core.cache import FILE_FINGERPRINT_VERSION, file_fingerprint, make_result_cache_key
+from core.cache import FILE_FINGERPRINT_VERSION, PREPARED_SERIES_VERSION, file_fingerprint, make_result_cache_key
 
 
 class CacheKeyTests(unittest.TestCase):
@@ -31,6 +31,7 @@ class CacheKeyTests(unittest.TestCase):
         self.assertIsInstance(key, tuple)
         # Verify selected_segment_indices should still be present as a tuple.
         self.assertIn((0, 1), key)
+        self.assertIn(PREPARED_SERIES_VERSION, key)
 
     def test_cache_key_uses_file_fingerprint_not_absolute_path(self):
         tmp_path = ROOT / ".tmp_cache_key_test"

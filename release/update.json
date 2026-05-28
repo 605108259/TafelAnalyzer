@@ -1,0 +1,9 @@
+{
+  "version": "1.0.5",
+  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.5-setup.exe",
+  "filename": "TAFSQ-1.0.5-setup.exe",
+  "sha256": "86302e8a109b79ac55da285b0ace60834adc04f36e43e674877414b701d8b2d3",
+  "size": 61030307,
+  "mandatory": false,
+  "notes": "Improve side panel responsiveness, tolerate non-standard TDMS channels, and support saved fitting parameter defaults."
+}

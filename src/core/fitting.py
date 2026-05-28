@@ -34,6 +34,7 @@ from core.types import (
     TafelFit,
     _normalize_optional_range,
 )
+from core.data_cleaning import valid_measurement_mask
 from core.formula import evaluate_formula, normalize_formula
 
 
@@ -173,13 +174,14 @@ def _best_window_fit(
             continue
 
         cov_xy = w * sxy - sx * sy
-        slopes = np.where(valid, cov_xy / var_x, 0.0)
+        slopes = np.zeros_like(cov_xy, dtype=float)
+        np.divide(cov_xy, var_x, out=slopes, where=valid)
         var_y = w * syy - sy * sy
-        r2 = np.where(
-            valid,
-            np.where(np.abs(var_y) < VAR_EPSILON, 1.0, (cov_xy * cov_xy) / (var_x * var_y)),
-            0.0,
-        )
+        r2 = np.zeros_like(cov_xy, dtype=float)
+        flat_y = valid & (np.abs(var_y) < VAR_EPSILON)
+        r2[flat_y] = 1.0
+        normal = valid & ~flat_y & (np.abs(var_y) >= VAR_EPSILON)
+        np.divide(cov_xy * cov_xy, var_x * var_y, out=r2, where=normal)
 
         if min_r2 is not None:
             valid = valid & (r2 >= float(min_r2))
@@ -470,19 +472,29 @@ def prepare_series(
     )
     raw_e = np.asarray(channels[potential_result.primary_channel], dtype=float).reshape(-1)[segment.start:segment.end]
     raw_j = np.asarray(channels[current_result.primary_channel], dtype=float).reshape(-1)[segment.start:segment.end]
+    processed_e_all = np.asarray(potential_result.values, dtype=float).reshape(-1)
+    processed_j_all = np.asarray(current_result.values, dtype=float).reshape(-1)
     n = min(
         raw_e.size,
         raw_j.size,
-        potential_result.values.size,
-        current_result.values.size,
+        processed_e_all.size,
+        processed_j_all.size,
     )
-    processed_e = np.asarray(potential_result.values[:n], dtype=float)
-    eta = np.abs(processed_e - float(e_eq))
+    raw_e = np.asarray(raw_e[:n], dtype=float)
+    raw_j = np.asarray(raw_j[:n], dtype=float)
+    processed_e = processed_e_all[:n]
+    processed_j = processed_j_all[:n]
+    valid_mask = valid_measurement_mask(raw_e, raw_j, processed_e, processed_j)
+    raw_e = raw_e[valid_mask]
+    raw_j = raw_j[valid_mask]
+    processed_e = processed_e[valid_mask]
+    processed_j = processed_j[valid_mask]
+    eta = float(e_eq) - processed_e
     return PreparedSeries(
-        raw_e=np.asarray(raw_e[:n], dtype=float),
-        raw_j=np.asarray(raw_j[:n], dtype=float),
+        raw_e=raw_e,
+        raw_j=raw_j,
         e=processed_e,
-        j=np.asarray(current_result.values[:n], dtype=float),
+        j=processed_j,
         eta=eta,
         e_label=potential_result.formula,
         j_label=current_result.formula,

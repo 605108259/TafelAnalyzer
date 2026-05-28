@@ -4,9 +4,9 @@ from typing import Any
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit,
-    QComboBox, QPushButton, QToolButton,
+    QComboBox, QPushButton, QToolButton, QCompleter,
 )
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QStringListModel
 
 from ui.theme import (
     TOOLBAR_STYLE, TOOLBAR_LABEL, INPUT_STYLE, ACCENT_BUTTON_STYLE,
@@ -29,6 +29,7 @@ class ToolBar(QWidget):
     nav_cancel_clicked = Signal()
     formulas_changed = Signal(str, str)  # potential, current
     params_changed = Signal(dict)
+    parameter_defaults_save_clicked = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,6 +44,10 @@ class ToolBar(QWidget):
         self._action_buttons: dict[str, QToolButton] = {}
         self._tool_actions: dict[str, Any] = {}
         self._active_tool: str | None = None
+        self._channel_model = QStringListModel(self)
+        self._channel_completer = QCompleter(self._channel_model, self)
+        self._channel_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._channel_completer.setFilterMode(Qt.MatchFlag.MatchContains)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(12, 4, 12, 4)
@@ -65,6 +70,8 @@ class ToolBar(QWidget):
 
         self.potential_input = add_formula("电压:", "例如 -[Vgs]+0.23")
         self.current_input = add_formula("电流:", "例如 [Igs/area]/(2.4e-7+3)")
+        self.potential_input.setCompleter(self._channel_completer)
+        self.current_input.setCompleter(self._channel_completer)
         outer.addLayout(row1)
 
         # Row 2: parameters + fit buttons
@@ -101,6 +108,13 @@ class ToolBar(QWidget):
         )
         self.combo_priority.currentTextChanged.connect(self._emit_params)
         row2.addWidget(self.combo_priority)
+
+        btn_save_params = QPushButton("保存参数")
+        btn_save_params.setToolTip("保存当前拟合参数为新文件默认值")
+        btn_save_params.setStyleSheet(ACCENT_BUTTON_STYLE)
+        btn_save_params.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_save_params.clicked.connect(self.parameter_defaults_save_clicked.emit)
+        row2.addWidget(btn_save_params)
 
         btn_fit = QPushButton("▶ 拟合")
         btn_fit.setStyleSheet(ACCENT_BUTTON_STYLE.replace(ACCENT, SUCCESS).replace(ACCENT_HOVER, SUCCESS_HOVER))
@@ -216,6 +230,17 @@ class ToolBar(QWidget):
         self.current_input.setText(current)
         self.potential_input.blockSignals(False)
         self.current_input.blockSignals(False)
+
+    def set_available_channels(self, channels: list[str]) -> None:
+        self._channel_model.setStringList([f"[{name}]" for name in channels])
+        if channels:
+            joined = "\n".join(channels[:40])
+            suffix = "\n..." if len(channels) > 40 else ""
+            tip = f"可用通道:\n{joined}{suffix}"
+        else:
+            tip = "未检测到可用通道"
+        self.potential_input.setToolTip(tip)
+        self.current_input.setToolTip(tip)
 
     def set_params(self, params: dict) -> None:
         mapping = {

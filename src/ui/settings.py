@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from core.cache import atomic_write_json, payload_hash
+from core.comparison import normalize_lsv_style
 from core.types import COMPARISON_COLORS
 from ui.state import DEFAULT_SCHEME_NAME, normalize_palette_scheme_name
 
@@ -224,6 +226,7 @@ def load_project_history_from_cache_dir(*, limit: int = 80) -> list[dict]:
     if not HISTORY_CACHE_DIR.exists():
         return []
     entries: list[dict] = []
+    # v2: single JSON files
     for cache_path in HISTORY_CACHE_DIR.glob("*.json"):
         try:
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -243,6 +246,33 @@ def load_project_history_from_cache_dir(*, limit: int = 80) -> list[dict]:
             "title": title,
             "updated_at": updated_at,
             "cache_path": str(cache_path),
+            "files": files,
+        })
+    # v3: directories with manifest.json
+    for cache_dir in HISTORY_CACHE_DIR.iterdir():
+        if not cache_dir.is_dir():
+            continue
+        manifest_path = cache_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+        files = [str(p) for p in manifest.get("selected_paths", []) if str(p).strip()]
+        current_path = str(manifest.get("current_path") or "").strip()
+        title = cache_dir.name
+        if not re.match(r"^\d{4}-\d{2}-\d{2} ", title) and current_path:
+            title = Path(current_path).stem
+        try:
+            updated_at = manifest_path.stat().st_mtime
+        except OSError:
+            updated_at = 0
+        entries.append({
+            "id": cache_dir.name,
+            "title": title,
+            "updated_at": updated_at,
+            "cache_path": str(cache_dir),
             "files": files,
         })
     entries.sort(key=lambda item: item.get("updated_at", 0), reverse=True)
@@ -294,6 +324,15 @@ def load_app_settings(app: TafelAnalyzerApp) -> None:
     if not project_history:
         project_history = load_project_history_from_cache_dir()
     app._app_state["project_history"] = project_history
+    app._app_state["comparison_lsv_style"] = normalize_lsv_style(
+        payload.get("comparison_lsv_style")
+    )
+    app._app_state["comparison_tafel_fit_window"] = bool(
+        payload.get("comparison_tafel_fit_window", False)
+    )
+    app._app_state["saved_parameter_defaults"] = normalize_parameter_settings(
+        payload.get("saved_parameter_defaults")
+    )
 
 
 def save_app_settings(app: TafelAnalyzerApp) -> None:
@@ -314,7 +353,18 @@ def save_app_settings(app: TafelAnalyzerApp) -> None:
         "project_history": normalize_project_history(
             app._app_state.get("project_history", [])
         ),
+        "comparison_lsv_style": normalize_lsv_style(
+            app._app_state.get("comparison_lsv_style")
+        ),
+        "comparison_tafel_fit_window": bool(
+            app._app_state.get("comparison_tafel_fit_window", False)
+        ),
+        "saved_parameter_defaults": normalize_parameter_settings(
+            app._app_state.get("saved_parameter_defaults")
+        ),
     }
-    APP_SETTINGS_PATH.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    new_hash = payload_hash(payload)
+    if new_hash == app._app_state.get("_last_settings_hash"):
+        return
+    app._app_state["_last_settings_hash"] = new_hash
+    atomic_write_json(APP_SETTINGS_PATH, payload, indent=2)

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel, QToolButton
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel, QToolButton, QComboBox
 from PySide6.QtCore import Qt
 
+from core.version import APP_VERSION
 from ui.activity_bar import ActivityBar, PANEL_FILES, PANEL_COMPARISON, PANEL_PALETTE, PANEL_HISTORY
 from ui.theme import BG_WINDOW, BG_CARD, BORDER, TEXT_PRIMARY, TEXT_SECONDARY
 from ui.state import AppState, create_initial_state
@@ -50,6 +51,7 @@ class TafelAnalyzerApp(QMainWindow):
         self._build_ui()
         self.views = ViewCoordinator(self)
         self._init_controllers()
+        self._schedule_update_check()
 
     def _install_tooltip_style(self) -> None:
         app = QApplication.instance()
@@ -69,7 +71,15 @@ class TafelAnalyzerApp(QMainWindow):
 
     def _init_app_state(self) -> None:
         self._app_state: dict = create_initial_state()
+        self._app_state["app_version"] = APP_VERSION
         self.state = AppState(self._app_state)
+
+    def _schedule_update_check(self) -> None:
+        try:
+            from ui.updater import schedule_update_check
+            schedule_update_check(self)
+        except Exception:
+            pass
 
     def _load_settings(self) -> None:
         try:
@@ -128,6 +138,14 @@ class TafelAnalyzerApp(QMainWindow):
         if hasattr(self, "files") and not self._app_state.get("_suppress_toolbar_autosave"):
             self.files.schedule_project_autosave()
 
+    def _on_save_parameter_defaults(self) -> None:
+        from ui.settings import normalize_parameter_settings, save_app_settings
+
+        defaults = normalize_parameter_settings(self.toolbar.get_params())
+        self._app_state["saved_parameter_defaults"] = defaults
+        save_app_settings(self)
+        self.status_bar.setText("已保存默认拟合参数，新文件将默认使用这组参数")
+
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
@@ -184,7 +202,7 @@ class TafelAnalyzerApp(QMainWindow):
         self.canvas = self.chart.canvas
 
         # Minimal nav bar for comparison mode (zoom/pan/save only)
-        from ui.theme import BG_HOVER, TEXT_SECONDARY, BORDER, ICON_BUTTON_STYLE
+        from ui.theme import BG_HOVER, TEXT_SECONDARY, BORDER, ICON_BUTTON_STYLE, COMBO_BOX_STYLE
         from ui.icons import line_icon
         self._comp_nav = QWidget()
         self._comp_nav.setFixedHeight(36)
@@ -195,6 +213,29 @@ class TafelAnalyzerApp(QMainWindow):
         _nav.setContentsMargins(8, 0, 8, 0)
         _nav.setSpacing(4)
         _nav.addStretch()
+        _lsv_lbl = QLabel("LSV")
+        _lsv_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        _nav.addWidget(_lsv_lbl)
+        self._comp_lsv_style_combo = QComboBox()
+        self._comp_lsv_style_combo.setStyleSheet(COMBO_BOX_STYLE)
+        self._comp_lsv_style_combo.addItem("点线", "line_marker")
+        self._comp_lsv_style_combo.addItem("折线", "line")
+        self._comp_lsv_style_combo.addItem("散点", "scatter")
+        self._comp_lsv_style_combo.setFixedWidth(78)
+        self._comp_lsv_style_combo.setToolTip("LSV 图显示方式")
+        _nav.addWidget(self._comp_lsv_style_combo)
+
+        _tafel_lbl = QLabel("Tafel")
+        _tafel_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        _nav.addWidget(_tafel_lbl)
+        self._comp_tafel_window_combo = QComboBox()
+        self._comp_tafel_window_combo.setStyleSheet(COMBO_BOX_STYLE)
+        self._comp_tafel_window_combo.addItem("全部", False)
+        self._comp_tafel_window_combo.addItem("拟合附近", True)
+        self._comp_tafel_window_combo.setFixedWidth(92)
+        self._comp_tafel_window_combo.setToolTip("Tafel 图显示全部点或拟合区间附近点")
+        _nav.addWidget(self._comp_tafel_window_combo)
+
         self._comp_nav_buttons: dict[str, QToolButton] = {}
         self._comp_active_tool: str | None = None
         active_style = (
@@ -282,6 +323,20 @@ class TafelAnalyzerApp(QMainWindow):
             btn.blockSignals(True)
             btn.setChecked(tool_name == name)
             btn.blockSignals(False)
+
+    def _sync_comparison_plot_controls(self) -> None:
+        lsv_style = self._app_state.get("comparison_lsv_style", "line_marker")
+        for index in range(self._comp_lsv_style_combo.count()):
+            if self._comp_lsv_style_combo.itemData(index) == lsv_style:
+                self._comp_lsv_style_combo.blockSignals(True)
+                self._comp_lsv_style_combo.setCurrentIndex(index)
+                self._comp_lsv_style_combo.blockSignals(False)
+                break
+        self._comp_tafel_window_combo.blockSignals(True)
+        self._comp_tafel_window_combo.setCurrentIndex(
+            1 if self._app_state.get("comparison_tafel_fit_window", False) else 0
+        )
+        self._comp_tafel_window_combo.blockSignals(False)
 
     def _on_comp_nav_tool(self, name: str) -> None:
         if self._comp_active_tool == name:
@@ -433,6 +488,7 @@ class TafelAnalyzerApp(QMainWindow):
 
         # Wire toolbar
         self.toolbar.fit_clicked.connect(lambda: self.fitting.run_fit(force=True))
+        self.toolbar.parameter_defaults_save_clicked.connect(self._on_save_parameter_defaults)
         self.toolbar.manual_clicked.connect(lambda: (self.chart.cancel_nav_modes(), self.fitting.enable_manual_mode()))
         self.toolbar.save_image_clicked.connect(self._save_chart_image)
         self.toolbar.nav_home_clicked.connect(self._on_nav_home)
@@ -451,6 +507,8 @@ class TafelAnalyzerApp(QMainWindow):
         cp.item_visibility_changed.connect(self.comparison.toggle_visibility)
         cp.item_color_changed.connect(self.comparison.update_color)
         cp.item_renamed.connect(self.comparison.rename)
+        cp.select_all_clicked.connect(self.comparison.select_all_visible)
+        cp.select_none_clicked.connect(self.comparison.select_none_visible)
         cp.clear_all_clicked.connect(self.comparison.clear_all)
         cp.item_remove_clicked.connect(self.comparison.remove_by_id)
         cp.item_clicked.connect(self.comparison.highlight_item)
@@ -459,6 +517,19 @@ class TafelAnalyzerApp(QMainWindow):
         cp.palette_scheme_changed.connect(self.files.on_palette_scheme_changed)
         cp.palette_apply_clicked.connect(self.files.on_palette_apply_comparison)
         cp.palette_manage_clicked.connect(lambda: self._on_panel_clicked(PANEL_PALETTE))
+        self._comp_lsv_style_combo.currentIndexChanged.connect(
+            lambda _idx: self.comparison.set_lsv_style(
+                self._comp_lsv_style_combo.currentData() or "line_marker"
+            )
+        )
+        self._comp_tafel_window_combo.currentIndexChanged.connect(
+            lambda _idx: self.comparison.set_tafel_fit_window(
+                bool(self._comp_tafel_window_combo.currentData())
+            )
+        )
+        self._sync_comparison_plot_controls()
+        if self._app_state.get("saved_parameter_defaults"):
+            self.toolbar.set_params(self._app_state["saved_parameter_defaults"])
 
         # Wire palette sidebar
         ps = self.palette_sidebar

@@ -7,9 +7,15 @@ from typing import TYPE_CHECKING
 import matplotlib
 import numpy as np
 from matplotlib.figure import Figure
+from core.rendering import clean_fit_plot_data, compute_tafel_points, valid_fit_source_indices
 
 if TYPE_CHECKING:
     from ui.app import TafelAnalyzerApp
+
+LSV_STYLE_LINE_MARKER = "line_marker"
+LSV_STYLE_LINE = "line"
+LSV_STYLE_SCATTER = "scatter"
+LSV_STYLES = {LSV_STYLE_LINE_MARKER, LSV_STYLE_LINE, LSV_STYLE_SCATTER}
 
 
 def comparison_item_id(file_path: Path, segment_index: int) -> str:
@@ -18,6 +24,49 @@ def comparison_item_id(file_path: Path, segment_index: int) -> str:
 
 def comparison_item_label(item) -> str:
     return getattr(item, "display_label", None) or item.label or f"{item.file_name}-第{item.segment_index + 1}段"
+
+
+def normalize_lsv_style(style: str | None) -> str:
+    text = str(style or "").strip()
+    return text if text in LSV_STYLES else LSV_STYLE_LINE_MARKER
+
+
+def lsv_plot_kwargs(style: str | None, *, linewidth: float, markersize: float) -> dict:
+    normalized = normalize_lsv_style(style)
+    if normalized == LSV_STYLE_LINE:
+        return {"marker": None, "linestyle": "-", "markersize": 0.0, "linewidth": linewidth}
+    if normalized == LSV_STYLE_SCATTER:
+        return {"marker": "o", "linestyle": "None", "markersize": markersize, "linewidth": 0.0}
+    return {"marker": "o", "linestyle": "-", "markersize": markersize, "linewidth": linewidth}
+
+
+def tafel_window_mask(
+    selected_mask: np.ndarray,
+    enabled: bool,
+    source_indices: np.ndarray | None = None,
+) -> np.ndarray:
+    selected = np.asarray(selected_mask, dtype=bool).reshape(-1)
+    n = int(selected.size)
+    if n == 0:
+        return selected
+    if not enabled or not np.any(selected):
+        return np.ones(n, dtype=bool)
+    if source_indices is not None:
+        source = np.asarray(source_indices, dtype=int).reshape(-1)[:n]
+        if source.size == n:
+            selected_source = source[selected]
+            if selected_source.size:
+                pad = int(np.ceil(selected_source.size * 0.2))
+                start = int(selected_source.min()) - pad
+                end = int(selected_source.max()) + pad
+                return (source >= start) & (source <= end)
+    selected_positions = np.flatnonzero(selected)
+    pad = int(np.ceil(selected_positions.size * 0.2))
+    start = max(0, int(selected_positions[0]) - pad)
+    end = min(n, int(selected_positions[-1]) + pad + 1)
+    mask = np.zeros(n, dtype=bool)
+    mask[start:end] = True
+    return mask
 
 
 def render_comparison_empty(app: TafelAnalyzerApp) -> None:
@@ -67,6 +116,8 @@ def render_comparison(
     highlight_id = None
     if 0 <= highlight_row < len(all_items):
         highlight_id = all_items[highlight_row].item_id
+    lsv_style = normalize_lsv_style(app._app_state.get("comparison_lsv_style"))
+    use_tafel_window = bool(app._app_state.get("comparison_tafel_fit_window", False))
 
     app.fig.clear()
     with matplotlib.rc_context(MPL_RC):
@@ -90,12 +141,11 @@ def render_comparison(
 
             ax0.plot(
                 prepared.e, prepared.j,
-                marker="o", linestyle="-", markersize=ms,
-                linewidth=lw, color=color, alpha=0.9,
-                label=label, zorder=z,
+                **lsv_plot_kwargs(lsv_style, linewidth=lw, markersize=ms),
+                color=color, alpha=0.9, label=label, zorder=z,
             )
             if fit is not None:
-                fit_indices = fit.source_indices[fit.selected_mask]
+                fit_indices = valid_fit_source_indices(fit, prepared)
                 if fit_indices.size:
                     ax0.scatter(
                         prepared.e[fit_indices], prepared.j[fit_indices],
@@ -104,26 +154,29 @@ def render_comparison(
                     )
 
             if fit is not None:
-                x_seg, y_seg, mask = fit.x_log10_j, fit.y_e, fit.selected_mask
-                ax1.scatter(x_seg[~mask], y_seg[~mask], s=14, alpha=0.2, color=color, zorder=2)
+                x_seg, y_seg, mask, source = clean_fit_plot_data(fit)
+                if not x_seg.size:
+                    continue
+                display_mask = tafel_window_mask(mask, use_tafel_window, source)
+                x_show = x_seg[display_mask]
+                y_show = y_seg[display_mask]
+                mask_show = mask[display_mask]
+                ax1.scatter(x_show[~mask_show], y_show[~mask_show], s=14, alpha=0.2, color=color, zorder=2)
                 ax1.scatter(
-                    x_seg[mask], y_seg[mask], s=28, color=color,
+                    x_show[mask_show], y_show[mask_show], s=28, color=color,
                     edgecolors="#111827", linewidths=0.5,
                     label=f"{label} ({fit.slope_mv_per_dec:.1f} mV/dec)",
                     zorder=3,
                 )
-                xs = x_seg[mask]
+                xs = x_show[mask_show]
                 if xs.size >= 2:
                     margin = max((float(xs.max()) - float(xs.min())) * 0.08, 0.02)
                     x_line = np.linspace(float(xs.min()) - margin, float(xs.max()) + margin, 100)
                     y_line = fit.slope_v_per_dec * x_line + fit.intercept_v
                     ax1.plot(x_line, y_line, linewidth=2.0, color=color, linestyle="--", alpha=0.9, zorder=4)
             else:
-                j_abs = np.abs(prepared.j)
-                pos = j_abs > 0
-                if np.any(pos):
-                    x_pts = np.log10(j_abs[pos])
-                    y_pts = prepared.eta[pos]
+                x_pts, y_pts = compute_tafel_points(prepared)
+                if x_pts.size:
                     ax1.scatter(x_pts, y_pts, s=14, alpha=0.4, color=color, label=label, zorder=2)
 
         ref = visible_items[0].prepared
@@ -152,6 +205,9 @@ def build_comparison_export(
     items: list,
     card_bg: str,
     mpl_rc: dict,
+    *,
+    lsv_style: str = LSV_STYLE_LINE_MARKER,
+    tafel_fit_window: bool = False,
 ) -> tuple[Figure, list[str]]:
     """Build export figure and summary lines for comparison items."""
     export_fig = Figure(figsize=(12, 5.4), dpi=150)
@@ -163,11 +219,21 @@ def build_comparison_export(
         for item in items:
             p, f = item.prepared, item.fit
             item_label = comparison_item_label(item)
-            ax0.plot(p.e, p.j, marker="o", linestyle="-", markersize=3, linewidth=1.4, color=item.color, alpha=0.9, label=item_label)
+            ax0.plot(
+                p.e, p.j,
+                **lsv_plot_kwargs(lsv_style, linewidth=1.4, markersize=3),
+                color=item.color, alpha=0.9, label=item_label,
+            )
             if f:
-                x_seg, y_seg, mask = f.x_log10_j, f.y_e, f.selected_mask
-                ax1.scatter(x_seg[mask], y_seg[mask], s=28, color=item.color, edgecolors="#111827", linewidths=0.5, label=f"{item_label} ({f.slope_mv_per_dec:.1f} mV/dec)", zorder=3)
-                xs = x_seg[mask]
+                x_seg, y_seg, mask, source = clean_fit_plot_data(f)
+                if not x_seg.size:
+                    continue
+                display_mask = tafel_window_mask(mask, tafel_fit_window, source)
+                x_show = x_seg[display_mask]
+                y_show = y_seg[display_mask]
+                mask_show = mask[display_mask]
+                ax1.scatter(x_show[mask_show], y_show[mask_show], s=28, color=item.color, edgecolors="#111827", linewidths=0.5, label=f"{item_label} ({f.slope_mv_per_dec:.1f} mV/dec)", zorder=3)
+                xs = x_show[mask_show]
                 if xs.size >= 2:
                     margin = max((float(xs.max()) - float(xs.min())) * 0.08, 0.02)
                     x_line = np.linspace(float(xs.min()) - margin, float(xs.max()) + margin, 100)

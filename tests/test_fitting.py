@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from core.fitting import auto_tafel_fit, _best_window_fit, _build_cumulative, build_segment_infos
+from core.fitting import auto_tafel_fit, _best_window_fit, _build_cumulative, build_segment_infos, prepare_series
 
 
 def test_auto_tafel_fit_perfect_linear():
@@ -59,6 +59,42 @@ def test_build_segment_infos_single_segment():
     assert len(infos) == 1
     assert infos[0].start == 0
     assert infos[0].end == 100
+
+
+def test_prepare_series_keeps_signed_overpotential():
+    channels = {
+        "E": np.array([-0.2, 0.0, 0.3], dtype=float),
+        "I": np.array([1.0, 2.0, 3.0], dtype=float),
+    }
+
+    prepared = prepare_series(
+        channels,
+        potential_formula="[E]",
+        current_formula="[I]",
+        e_eq=0.1,
+        segment_index=0,
+    )
+
+    assert np.allclose(prepared.eta, np.array([0.3, 0.1, -0.2]))
+
+
+def test_prepare_series_filters_isolated_extreme_sentinel():
+    channels = {
+        "E": np.array([-1.3068769334e10, 0.0, 0.1, 0.2, 0.3], dtype=float),
+        "I": np.array([-1.3068769334e10, 1.0, 2.0, 3.0, 4.0], dtype=float),
+    }
+
+    prepared = prepare_series(
+        channels,
+        potential_formula="[E]",
+        current_formula="[I]",
+        e_eq=0.0,
+        segment_index=0,
+    )
+
+    assert prepared.e.size == 4
+    assert np.all(np.abs(prepared.e) < 1.0)
+    assert np.all(np.abs(prepared.j) < 10.0)
 
 
 def test_build_segment_infos_with_jump():

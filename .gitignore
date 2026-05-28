@@ -8,8 +8,11 @@ venv/
 
 # Build
 build/
+build-*/
 dist/
+dist-*/
 *.spec
+!TAFSQ.spec
 installer_output/
 
 # IDE

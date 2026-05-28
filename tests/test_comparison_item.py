@@ -7,6 +7,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from core.types import ComparisonItem, PreparedSeries, SegmentInfo
+from core.comparison import lsv_plot_kwargs, normalize_lsv_style, tafel_window_mask
 
 
 def _make_item():
@@ -36,3 +37,37 @@ def test_set_label_only_changes_label():
     item.set_label("custom label")
     assert item.label == "custom label"
     assert item.file_name == "a"  # unchanged
+
+
+def test_lsv_style_options_normalize_and_map_to_plot_kwargs():
+    assert normalize_lsv_style("unknown") == "line_marker"
+    assert lsv_plot_kwargs("line", linewidth=2.0, markersize=4.0)["marker"] is None
+    assert lsv_plot_kwargs("scatter", linewidth=2.0, markersize=4.0)["linestyle"] == "None"
+    mixed = lsv_plot_kwargs("line_marker", linewidth=2.0, markersize=4.0)
+    assert mixed["marker"] == "o"
+    assert mixed["linestyle"] == "-"
+
+
+def test_tafel_window_mask_keeps_fit_region_plus_twenty_percent_of_fit_points_each_side():
+    selected = np.zeros(100, dtype=bool)
+    selected[40:51] = True
+
+    mask = tafel_window_mask(selected, True)
+
+    assert np.flatnonzero(mask)[0] == 37
+    assert np.flatnonzero(mask)[-1] == 53
+    assert np.all(mask[selected])
+    assert np.all(tafel_window_mask(selected, False))
+
+
+def test_tafel_window_mask_uses_source_indices_not_sorted_positions():
+    selected = np.zeros(100, dtype=bool)
+    selected[70:81] = True
+    source = np.arange(100)[::-1]
+
+    mask = tafel_window_mask(selected, True, source)
+    kept_source = source[mask]
+
+    assert kept_source.min() == 16
+    assert kept_source.max() == 32
+    assert np.all(mask[selected])

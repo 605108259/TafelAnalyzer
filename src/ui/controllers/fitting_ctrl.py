@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QThread, Signal, Qt
 
-from core.fitting import prepare_series, auto_tafel_fit, manual_tafel_fit
+from core.fitting import prepare_series, auto_tafel_fit, manual_tafel_fit, build_segment_infos
 from core.types import PreparedSeries, TafelFit
 from core.utils import parse_range_text, priority_label_to_key
 from ui.controllers.base import BaseAppController
@@ -122,7 +122,7 @@ class FittingController(BaseAppController):
         from core.cache import file_fingerprint
 
         return (
-            "prepared-v1",
+            "prepared-eq-minus-e-v1",
             file_fingerprint(path),
             potential_formula,
             current_formula,
@@ -170,9 +170,31 @@ class FittingController(BaseAppController):
         if channels is None:
             return
 
+        pot_f, cur_f = app.toolbar.get_formulas()
+        if not pot_f or not cur_f:
+            app.status_bar.setText("请先在公式栏选择电位和电流通道")
+            return
+
         segments = state.get("segments", [])
         if not segments:
-            return
+            try:
+                segment_infos = build_segment_infos(channels, pot_f)
+            except Exception as exc:
+                app.status_bar.setText(f"电位通道/公式无法分段: {exc}")
+                return
+            scheme_name = app.state.palette.active_name
+            segment_colors = {
+                segment.index: app.state.palette.color_at(segment.index, scheme_name)
+                for segment in segment_infos
+            }
+            state["_precomputed_segments"] = segment_infos
+            app.state.analysis.apply_loaded_file(
+                channels=channels,
+                segment_infos=segment_infos,
+                segment_colors=segment_colors,
+            )
+            app.views.refresh_segments(rebuild=True)
+            segments = state.get("segments", [])
 
         selected_indices = [int(index) for index in state.get("selected_segment_indices", [])]
         if not selected_indices:
@@ -227,8 +249,6 @@ class FittingController(BaseAppController):
         fit_priority = priority_label_to_key(
             params.get("fit_priority", "斜率更低优先")
         )
-
-        pot_f, cur_f = app.toolbar.get_formulas()
 
         path = app.state.files.current_path
         if path is not None:
