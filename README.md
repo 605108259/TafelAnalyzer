@@ -115,7 +115,7 @@ docs/发布与自动更新.md
 示例：
 
 ```powershell
-python -m PyInstaller --noconfirm --distpath dist-1.0.5 --workpath build-1.0.5 TAFSQ.spec
+python -m PyInstaller --noconfirm --distpath dist-1.0.6 --workpath build-1.0.6 TAFSQ.spec
 ```
 
 Inno Setup Compiler 如果不在 PATH 中，可直接使用完整路径：

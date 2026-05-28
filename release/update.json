@@ -1,9 +1,9 @@
 {
-  "version": "1.0.5",
-  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.5-setup.exe",
-  "filename": "TAFSQ-1.0.5-setup.exe",
-  "sha256": "86302e8a109b79ac55da285b0ace60834adc04f36e43e674877414b701d8b2d3",
-  "size": 61030307,
+  "version": "1.0.6",
+  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.6-setup.exe",
+  "filename": "TAFSQ-1.0.6-setup.exe",
+  "sha256": "eaf0adf06ec7b001c5f2e0f119fb100657e7b8d23c8dc0486eafeeddf236d314",
+  "size": 66045257,
   "mandatory": false,
-  "notes": "Improve side panel responsiveness, tolerate non-standard TDMS channels, and support saved fitting parameter defaults."
+  "notes": "Bump release version to 1.0.6 for the latest side panel and TDMS channel handling fixes."
 }
