@@ -53,6 +53,17 @@ class TafelAnalyzerApp(QMainWindow):
         self._init_controllers()
         self._schedule_update_check()
 
+    def closeEvent(self, event) -> None:
+        if hasattr(self, "files") and hasattr(self.files, "_worker"):
+            from ui.controllers.worker_utils import stop_worker
+            stop_worker(self.files._worker)
+        if hasattr(self, "fitting") and hasattr(self.fitting, "_worker"):
+            from ui.controllers.worker_utils import stop_worker
+            stop_worker(self.fitting._worker)
+        if hasattr(self, "chart") and hasattr(self.chart, "close_figure"):
+            self.chart.close_figure()
+        super().closeEvent(event)
+
     def _install_tooltip_style(self) -> None:
         app = QApplication.instance()
         if not isinstance(app, QApplication):
@@ -439,22 +450,6 @@ class TafelAnalyzerApp(QMainWindow):
             self.status_bar.setText(f"图片已保存: {Path(file_path).name}")
         except Exception as exc:
             QMessageBox.critical(self, "保存失败", str(exc))
-
-    def _update_palette_workspace(self):
-        self.views.refresh_palette_workspace()
-
-    def _render_single_workspace(self) -> None:
-        self.views.render_single()
-
-    def _switch_mode(self, mode: str) -> None:
-        if mode == "single":
-            self.activity_bar.set_active(PANEL_FILES)
-            self.side_stack.setCurrentIndex(PANEL_FILES)
-            self.views.show_single()
-        else:
-            self.activity_bar.set_active(PANEL_COMPARISON)
-            self.side_stack.setCurrentIndex(PANEL_COMPARISON)
-            self.views.show_comparison()
 
     def _init_controllers(self) -> None:
         from ui.controllers.file_ctrl import FileController

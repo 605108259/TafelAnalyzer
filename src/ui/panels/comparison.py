@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
-    QListWidgetItem, QLabel, QLineEdit, QTextBrowser, QColorDialog, QComboBox,
-    QToolButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
+    QTextBrowser, QColorDialog, QComboBox, QToolButton, QScrollArea,
 )
 from PySide6.QtCore import Signal, Qt, QEvent
 from PySide6.QtGui import QColor
@@ -208,6 +207,67 @@ class ComparisonItemWidget(QWidget):
         super().mouseDoubleClickEvent(event)
 
 
+class ComparisonItemList(QScrollArea):
+    """Simple widget list for comparison rows.
+
+    QListWidget + setItemWidget is fragile when rows are moved repeatedly.
+    This class keeps real row widgets in one vertical layout, so moving a row
+    only changes layout order.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        self._content = QWidget()
+        self._content.setStyleSheet("background: transparent;")
+        self._layout = QVBoxLayout(self._content)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(2)
+        self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.setWidget(self._content)
+        self._widgets: list[ComparisonItemWidget] = []
+
+    def count(self) -> int:
+        return len(self._widgets)
+
+    def widget_at(self, row: int) -> ComparisonItemWidget | None:
+        if 0 <= row < len(self._widgets):
+            return self._widgets[row]
+        return None
+
+    def row_of(self, widget: ComparisonItemWidget) -> int:
+        try:
+            return self._widgets.index(widget)
+        except ValueError:
+            return -1
+
+    def clear_rows(self) -> None:
+        for widget in self._widgets:
+            self._layout.removeWidget(widget)
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
+        self._widgets.clear()
+
+    def append_row(self, widget: ComparisonItemWidget) -> None:
+        self._widgets.append(widget)
+        self._layout.addWidget(widget)
+
+    def move_row(self, from_row: int, to_row: int) -> bool:
+        count = len(self._widgets)
+        if not (0 <= from_row < count and 0 <= to_row < count) or from_row == to_row:
+            return False
+        widget = self._widgets.pop(from_row)
+        self._layout.removeWidget(widget)
+        self._widgets.insert(to_row, widget)
+        self._layout.insertWidget(to_row, widget)
+        return True
+
+
 class ComparisonPanel(QWidget):
     """Comparison side panel with header buttons, item list, result text."""
 
@@ -319,13 +379,7 @@ class ComparisonPanel(QWidget):
         layout.addLayout(palette_row)
 
         # Item list
-        self.item_list = QListWidget()
-        self.item_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        self.item_list.setStyleSheet(
-            f"QListWidget {{ border: none; background: transparent; outline: none; }}"
-            f"QListWidget::item {{ background: transparent; padding: 0px; }}"
-        )
-        self.item_list.itemClicked.connect(self._on_item_clicked)
+        self.item_list = ComparisonItemList()
         layout.addWidget(self.item_list, stretch=1)
 
         # Result text
@@ -337,19 +391,36 @@ class ComparisonPanel(QWidget):
         self.result_text.setFixedHeight(120)
         layout.addWidget(self.result_text)
 
-    def set_items(self, items: list[dict]) -> None:
+    def set_items(self, items: list[dict], highlighted_row: int | None = None) -> None:
         """items: list of {item_id, edit_name, segment_label, color, visible}"""
+        highlighted_id = self.item_id_at(self._highlighted_row)
         if self.item_list.count() == len(items):
-            for row, data in enumerate(items):
-                widget = self.item_list.itemWidget(self.item_list.item(row))
-                if isinstance(widget, ComparisonItemWidget):
-                    widget.update_data(data)
-            if 0 <= self._highlighted_row < self.item_list.count():
-                self.set_highlighted(self._highlighted_row)
+            same_order = self._same_item_order(items)
+            if same_order:
+                for row, data in enumerate(items):
+                    widget = self.item_list.widget_at(row)
+                    if isinstance(widget, ComparisonItemWidget):
+                        widget.update_data(data)
+            else:
+                scroll_value = self.item_list.verticalScrollBar().value()
+                self._clear_items()
+                self._append_items(items)
+                self.item_list.verticalScrollBar().setValue(scroll_value)
+            highlight_row = (
+                highlighted_row
+                if highlighted_row is not None
+                else self._row_for_item_id(highlighted_id, items) if highlighted_id else self._highlighted_row
+            )
+            self.set_highlighted(highlight_row)
             return
         scroll_value = self.item_list.verticalScrollBar().value()
         self._clear_items()
-        self.item_list.clear()
+        self._append_items(items)
+        self.item_list.verticalScrollBar().setValue(scroll_value)
+        highlight_row = highlighted_row if highlighted_row is not None else self._highlighted_row
+        self.set_highlighted(highlight_row)
+
+    def _append_items(self, items: list[dict]) -> None:
         for data in items:
             widget = ComparisonItemWidget(
                 data["item_id"], data.get("edit_name") or data["display_name"],
@@ -367,19 +438,8 @@ class ComparisonPanel(QWidget):
                 lambda item_id, name: self.item_renamed.emit(item_id, name)
             )
             widget.remove_clicked.connect(self.item_remove_clicked.emit)
-
-            item = QListWidgetItem()
-            item.setSizeHint(widget.sizeHint())
-            self.item_list.addItem(item)
-            self.item_list.setItemWidget(item, widget)
-            widget.row_clicked.connect(lambda _item=item: self._on_item_clicked(_item))
-
-        # Reapply highlight after rebuild
-        if 0 <= self._highlighted_row < self.item_list.count():
-            w = self.item_list.itemWidget(self.item_list.item(self._highlighted_row))
-            if isinstance(w, ComparisonItemWidget):
-                w.set_highlighted(True)
-        self.item_list.verticalScrollBar().setValue(scroll_value)
+            widget.row_clicked.connect(lambda _widget=widget: self._on_widget_clicked(_widget))
+            self.item_list.append_row(widget)
 
     def _same_item_order(self, items: list[dict]) -> bool:
         if self.item_list.count() != len(items):
@@ -389,44 +449,36 @@ class ComparisonPanel(QWidget):
             for row, data in enumerate(items)
         )
 
+    def _row_for_item_id(self, item_id: str, items: list[dict]) -> int:
+        for row, data in enumerate(items):
+            if data.get("item_id") == item_id:
+                return row
+        return -1
+
     def _clear_items(self) -> None:
-        for row in range(self.item_list.count()):
-            item = self.item_list.item(row)
-            widget = self.item_list.itemWidget(item)
-            if widget is None:
-                continue
-            self.item_list.removeItemWidget(item)
-            widget.hide()
-            widget.setParent(None)
-            widget.deleteLater()
+        self.item_list.clear_rows()
 
     def update_item_name(self, item_id: str, display_name: str, segment_label: str = "") -> None:
         for row in range(self.item_list.count()):
-            widget = self.item_list.itemWidget(self.item_list.item(row))
+            widget = self.item_list.widget_at(row)
             if isinstance(widget, ComparisonItemWidget) and widget.item_id == item_id:
                 widget.set_display_name(display_name, segment_label)
                 return
 
     def item_id_at(self, row: int) -> str:
-        if row < 0 or row >= self.item_list.count():
-            return ""
-        widget = self.item_list.itemWidget(self.item_list.item(row))
+        widget = self.item_list.widget_at(row)
         return widget.item_id if isinstance(widget, ComparisonItemWidget) else ""
 
     def move_row(self, from_row: int, to_row: int) -> bool:
-        return False
+        return self.item_list.move_row(from_row, to_row)
 
     def set_highlighted(self, row: int) -> None:
         """Set which row is highlighted (visually, no selection box)."""
-        if 0 <= self._highlighted_row < self.item_list.count():
-            prev = self.item_list.itemWidget(self.item_list.item(self._highlighted_row))
-            if isinstance(prev, ComparisonItemWidget):
-                prev.set_highlighted(False)
-        self._highlighted_row = row
-        if 0 <= row < self.item_list.count():
-            w = self.item_list.itemWidget(self.item_list.item(row))
-            if isinstance(w, ComparisonItemWidget):
-                w.set_highlighted(True)
+        self._highlighted_row = row if 0 <= row < self.item_list.count() else -1
+        for index in range(self.item_list.count()):
+            widget = self.item_list.widget_at(index)
+            if isinstance(widget, ComparisonItemWidget):
+                widget.set_highlighted(index == self._highlighted_row)
 
     def highlighted_row(self) -> int:
         return self._highlighted_row
@@ -434,7 +486,7 @@ class ComparisonPanel(QWidget):
     def _on_color(self, item_id: str):
         current = "#2563eb"
         for row in range(self.item_list.count()):
-            widget = self.item_list.itemWidget(self.item_list.item(row))
+            widget = self.item_list.widget_at(row)
             if isinstance(widget, ComparisonItemWidget) and widget.item_id == item_id:
                 current = widget._color
                 break
@@ -442,8 +494,8 @@ class ComparisonPanel(QWidget):
         if color.isValid():
             self.item_color_changed.emit(item_id, color.name())
 
-    def _on_item_clicked(self, item: QListWidgetItem) -> None:
-        row = self.item_list.row(item)
+    def _on_widget_clicked(self, widget: ComparisonItemWidget) -> None:
+        row = self.item_list.row_of(widget)
         self.item_clicked.emit(row)
 
     def set_result_text(self, text: str) -> None:

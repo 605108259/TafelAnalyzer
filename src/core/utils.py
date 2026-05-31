@@ -65,30 +65,6 @@ def apply_matplotlib_cjk(matplotlib_module) -> str:
     return font_name
 
 
-# ── Path & file helpers ──────────────────────────────────────────────
-
-
-def path_labels(paths: list[Path]) -> dict[str, Path]:
-    labels: dict[str, Path] = {}
-    name_counts: dict[str, int] = {}
-    for path in paths:
-        name_counts[path.name] = name_counts.get(path.name, 0) + 1
-    for path in paths:
-        label = path.name if name_counts[path.name] == 1 else f"{path.name} | {path.parent}"
-        labels[label] = path
-    return labels
-
-
-def output_stem(tdms_path: Path, segment_index: int, segment_count: int) -> str:
-    if segment_count <= 1:
-        return tdms_path.stem
-    return f"{tdms_path.stem}_seg{segment_index + 1}"
-
-
-def resolved_output_stem(tdms_path: Path, export_name: str) -> str:
-    return export_name.strip() or tdms_path.stem
-
-
 # ── Range text parsing ───────────────────────────────────────────────
 
 
@@ -133,40 +109,3 @@ def priority_label_to_key(label: str) -> str:
     return "slope" if label.strip() == "斜率更低优先" else "r2"
 
 
-def priority_key_to_label(key: str) -> str:
-    return "斜率更低优先" if key == "slope" else "R²优先"
-
-
-# ── Segment selection parsing ────────────────────────────────────────
-
-
-def parse_segment_selection(text: str, segment_count: int, active_index: int) -> list[int]:
-    raw = text.strip()
-    if not raw:
-        result: list[int] = []
-    elif raw.lower() == "all":
-        result = list(range(segment_count))
-    else:
-        unique: set[int] = set()
-        for chunk in raw.replace("，", ",").split(","):
-            part = chunk.strip()
-            if not part:
-                continue
-            if "-" in part:
-                left_text, right_text = part.split("-", 1)
-                left = int(left_text)
-                right = int(right_text)
-                start, end = sorted((left, right))
-                for item in range(start, end + 1):
-                    unique.add(item - 1)
-            else:
-                unique.add(int(part) - 1)
-        result = sorted(unique)
-    for index in result:
-        if index < 0 or index >= segment_count:
-            raise ValueError(f"分段选择超出范围，当前共 {segment_count} 段")
-    return result
-
-
-def segment_selection_text(indices: list[int]) -> str:
-    return ",".join(str(index + 1) for index in indices)

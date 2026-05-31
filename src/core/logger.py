@@ -44,23 +44,3 @@ def get_logger() -> logging.Logger:
 
     _logger.info(f"日志文件: {LOG_PATH}")
     return _logger
-
-
-def log_info(msg: str) -> None:
-    get_logger().info(msg)
-
-
-def log_error(msg: str) -> None:
-    get_logger().error(msg)
-
-
-def log_warning(msg: str) -> None:
-    get_logger().warning(msg)
-
-
-def log_debug(msg: str) -> None:
-    get_logger().debug(msg)
-
-
-def log_exception(msg: str) -> None:
-    get_logger().exception(msg)

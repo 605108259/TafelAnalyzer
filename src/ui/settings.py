@@ -182,22 +182,6 @@ def normalize_parameter_settings(raw: dict | None) -> dict[str, str]:
     return settings
 
 
-def normalize_file_history(raw: list | None, *, limit: int = 80) -> list[str]:
-    if not isinstance(raw, list):
-        return []
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in raw:
-        text = str(item or "").strip()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-        if len(result) >= limit:
-            break
-    return result
-
-
 def normalize_project_history(raw: list | None, *, limit: int = 80) -> list[dict]:
     if not isinstance(raw, list):
         return []

@@ -104,10 +104,13 @@ class ChartArea(QWidget):
             x0 = float(event.x) - float(offset[0])
             y0 = float(event.y) - float(offset[1])
             anchor = axis.transAxes.inverted().transform((x0, y0))
-            if hasattr(legend, "set_loc"):
-                legend.set_loc("lower left")
-            else:
-                legend._loc = 3
+            try:
+                if hasattr(legend, "set_loc"):
+                    legend.set_loc("lower left")
+                else:
+                    legend._loc = 3
+            except Exception:
+                pass
             legend.set_bbox_to_anchor((float(anchor[0]), float(anchor[1])), transform=axis.transAxes)
             self.canvas.draw_idle()
         except Exception:
@@ -140,6 +143,19 @@ class ChartArea(QWidget):
         self.fig.clear()
         self.axes = []
         self.canvas.draw_idle()
+
+    def close_figure(self) -> None:
+        import matplotlib.pyplot as plt
+        try:
+            self.fig.clear()
+        except Exception:
+            pass
+        try:
+            plt.close(self.fig)
+        except Exception:
+            pass
+        self.axes = []
+        self.fig = None
 
     def cancel_nav_modes(self) -> None:
         mode = self._nav_toolbar.mode

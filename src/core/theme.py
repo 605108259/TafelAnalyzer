@@ -49,9 +49,6 @@ def get_plot_font() -> str:
     return _PLOT_FONT_CACHE
 
 
-PLOT_FONT = get_plot_font()
-
-
 MPL_RC = {
     "figure.facecolor": CARD_BG,
     "axes.facecolor": "#ffffff",

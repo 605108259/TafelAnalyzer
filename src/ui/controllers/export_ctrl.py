@@ -135,24 +135,3 @@ class ExportController(BaseAppController):
 
     def _on_batch_error(self, msg: str) -> None:
         self.app.status_bar.setText(f"批量导出错误: {msg[:60]}")
-
-    def export_comparison(self) -> None:
-        app = self.app
-        items = app._app_state.get("comparison_items", [])
-        if not items:
-            QMessageBox.warning(app, "提示", "没有对比项")
-            return
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            app, "导出对比图",
-            "comparison.png",
-            "PNG Image (*.png);;PDF (*.pdf)",
-        )
-        if not file_path:
-            return
-
-        from core.comparison import render_comparison
-        if app._app_state.get("comparison_mode"):
-            render_comparison(app)
-        app.chart.fig.savefig(file_path, dpi=150, bbox_inches="tight")
-        app.status_bar.setText(f"对比图已导出: {Path(file_path).name}")

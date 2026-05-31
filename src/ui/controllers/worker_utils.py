@@ -4,20 +4,18 @@ from typing import Any
 
 
 def stop_worker(worker: Any | None, *, timeout_ms: int = 3000) -> None:
-    """Disconnect common QThread signals and stop a running worker."""
+    """Quit and wait for a running QThread worker.
+
+    Does NOT disconnect signals — handlers use a generation check
+    to ignore stale results.  Disconnecting would create a zombie
+    state where the handler silently returns because sender() is None,
+    leaving the UI in a permanent loading spinner.
+    """
     if worker is None:
         return
     is_running = getattr(worker, "isRunning", None)
     if callable(is_running) and not is_running():
         return
-    for signal_name in ("finished", "error"):
-        signal = getattr(worker, signal_name, None)
-        disconnect = getattr(signal, "disconnect", None)
-        if callable(disconnect):
-            try:
-                disconnect()
-            except Exception:
-                pass
     quit_worker = getattr(worker, "quit", None)
     if callable(quit_worker):
         quit_worker()

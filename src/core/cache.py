@@ -200,12 +200,6 @@ def build_cache_payload(app: TafelAnalyzerApp) -> dict:
     }
 
 
-def export_cache_file(app: TafelAnalyzerApp, path: Path) -> Path:
-    payload = build_cache_payload(app)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
-
-
 # ── v3 directory-based cache ─────────────────────────────────────────
 
 

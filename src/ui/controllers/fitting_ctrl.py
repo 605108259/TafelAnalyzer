@@ -56,21 +56,35 @@ class FitWorker(QThread):
         self.generation: int | None = None
 
     def run(self) -> None:
+        # Snapshot all fields set from main thread before any work.
+        channels = dict(self.channels)
+        pot_formula = self.pot_formula
+        cur_formula = self.cur_formula
+        e_eq = self.e_eq
+        selected_indices = list(self.selected_indices)
+        window_min = self.window_min
+        window_max = self.window_max
+        min_r2 = self.min_r2
+        fit_priority = self.fit_priority
+        eta_range = self.eta_range
+        logj_range = self.logj_range
+        precomputed_segments = self.precomputed_segments
+        prepared_cache = dict(self.prepared_cache)
         try:
             prepared_map = {}
             fit_map = {}
             error_map = {}
-            for seg_idx in self.selected_indices:
+            for seg_idx in selected_indices:
                 try:
-                    prepared = self.prepared_cache.get(seg_idx)
+                    prepared = prepared_cache.get(seg_idx)
                     if prepared is None:
                         prepared = prepare_series(
-                            self.channels,
-                            potential_formula=self.pot_formula,
-                            current_formula=self.cur_formula,
-                            e_eq=self.e_eq,
+                            channels,
+                            potential_formula=pot_formula,
+                            current_formula=cur_formula,
+                            e_eq=e_eq,
                             segment_index=seg_idx,
-                            precomputed_segments=self.precomputed_segments,
+                            precomputed_segments=precomputed_segments,
                         )
                     prepared_map[seg_idx] = prepared
                 except Exception as exc:
@@ -80,12 +94,12 @@ class FitWorker(QThread):
                     fit = auto_tafel_fit(
                         prepared.eta,
                         prepared.j,
-                        min_window=self.window_min,
-                        max_window=self.window_max,
-                        min_r2=self.min_r2,
-                        fit_priority=self.fit_priority,
-                        eta_range=self.eta_range,
-                        logj_range=self.logj_range,
+                        min_window=window_min,
+                        max_window=window_max,
+                        min_r2=min_r2,
+                        fit_priority=fit_priority,
+                        eta_range=eta_range,
+                        logj_range=logj_range,
                     )
                     fit_map[seg_idx] = fit
                 except Exception as exc:

@@ -83,29 +83,81 @@ class PanelIncrementalUpdateTests(unittest.TestCase):
         panel = ComparisonPanel()
         items = self._comparison_items(5)
         panel.set_items(items)
-        original = panel.item_list.itemWidget(panel.item_list.item(1))
+        original = panel.item_list.widget_at(1)
 
         updated = [dict(item, edit_name=f"updated {index}") for index, item in enumerate(items)]
         panel.set_items(updated)
 
-        self.assertIs(panel.item_list.itemWidget(panel.item_list.item(1)), original)
+        self.assertIs(panel.item_list.widget_at(1), original)
 
-    def test_comparison_reorder_reuses_stable_row_widgets_and_updates_ids(self) -> None:
+    def test_comparison_reorder_rebuilds_rows_and_updates_ids(self) -> None:
         _qapp()
         from ui.panels.comparison import ComparisonPanel
 
         panel = ComparisonPanel()
         items = self._comparison_items(3)
         panel.set_items(items)
-        first_row_widget = panel.item_list.itemWidget(panel.item_list.item(0))
-        second_row_widget = panel.item_list.itemWidget(panel.item_list.item(1))
+        item_0_widget = panel.item_list.widget_at(0)
 
         panel.set_items([items[1], items[0], items[2]])
 
         self.assertEqual(panel.item_id_at(0), "item-1")
         self.assertEqual(panel.item_id_at(1), "item-0")
-        self.assertIs(panel.item_list.itemWidget(panel.item_list.item(0)), first_row_widget)
-        self.assertIs(panel.item_list.itemWidget(panel.item_list.item(1)), second_row_widget)
+        self.assertIsNot(panel.item_list.widget_at(1), item_0_widget)
+
+    def test_comparison_reorder_moves_highlight_with_item(self) -> None:
+        _qapp()
+        from ui.panels.comparison import ComparisonItemWidget, ComparisonPanel
+
+        panel = ComparisonPanel()
+        items = self._comparison_items(3)
+        panel.set_items(items)
+        panel.set_highlighted(1)
+
+        panel.set_items([items[1], items[0], items[2]])
+
+        self.assertEqual(panel.highlighted_row(), 0)
+        states = []
+        for row in range(panel.item_list.count()):
+            widget = panel.item_list.widget_at(row)
+            self.assertIsInstance(widget, ComparisonItemWidget)
+            states.append(widget._highlighted)
+        self.assertEqual(states, [True, False, False])
+
+    def test_comparison_move_row_moves_widget_and_highlight(self) -> None:
+        _qapp()
+        from ui.panels.comparison import ComparisonItemWidget, ComparisonPanel
+
+        panel = ComparisonPanel()
+        items = self._comparison_items(3)
+        panel.set_items(items)
+        moving_widget = panel.item_list.widget_at(1)
+        panel.set_highlighted(1)
+
+        self.assertTrue(panel.move_row(1, 0))
+        panel.set_highlighted(0)
+
+        widget = panel.item_list.widget_at(0)
+        self.assertIs(widget, moving_widget)
+        self.assertIsInstance(widget, ComparisonItemWidget)
+        self.assertTrue(widget._highlighted)
+
+    def test_comparison_rename_signal_still_uses_item_id(self) -> None:
+        _qapp()
+        from ui.panels.comparison import ComparisonItemWidget, ComparisonPanel
+
+        panel = ComparisonPanel()
+        panel.set_items(self._comparison_items(1))
+        renamed = []
+        panel.item_renamed.connect(lambda item_id, name: renamed.append((item_id, name)))
+
+        widget = panel.item_list.widget_at(0)
+        self.assertIsInstance(widget, ComparisonItemWidget)
+        widget.begin_rename()
+        widget.name_edit.setText("renamed file")
+        widget._commit_rename()
+
+        self.assertEqual(renamed, [("item-0", "renamed file")])
 
     def _comparison_items(self, count: int) -> list[dict]:
         return [

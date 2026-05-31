@@ -174,9 +174,14 @@ class ViewCoordinator:
         app = self.app
         if not hasattr(app, "comparison_panel"):
             return
+        highlight_row = app.state.comparison.highlight_row
         if rebuild:
-            app.comparison_panel.set_items(app.state.comparison.item_data())
-        app.comparison_panel.set_highlighted(app.state.comparison.highlight_row)
+            app.comparison_panel.set_items(
+                app.state.comparison.item_data(),
+                highlighted_row=highlight_row,
+            )
+        else:
+            app.comparison_panel.set_highlighted(highlight_row)
 
     def update_comparison_name(self, item_id: str, display_name: str, segment_label: str = "") -> None:
         if hasattr(self.app, "comparison_panel"):

@@ -257,9 +257,9 @@ class CacheWriteWorker(QThread):
             while True:
                 with self._lock:
                     mode = self._mode
-                    payload = self._payload
-                    path = self._path
-                    v3_args = self._v3_args
+                    payload = dict(self._payload) if isinstance(self._payload, dict) else None
+                    path = Path(self._path) if self._path is not None else None
+                    v3_args = dict(self._v3_args) if isinstance(self._v3_args, dict) else None
                 if mode == "v3" and v3_args:
                     from core.cache import write_v3_project_dir
                     new_hashes = write_v3_project_dir(
@@ -308,8 +308,9 @@ class FileLoadWorker(QThread):
         self.generation: int | None = None
 
     def run(self):
+        file_path = self.file_path
         try:
-            channels = read_data_all_channels(self.file_path)
+            channels = read_data_all_channels(file_path)
             pot_f, cur_f, warnings = self._resolve_formulas(channels)
             segments = []
             if pot_f:
@@ -1413,10 +1414,6 @@ class FileController(BaseAppController):
             self._sync_comparison_colors_for_current_file()
             self._rerender_current()
 
-    def _reset_current_file_state(self) -> None:
-        app = self.app
-        app.state.reset_current_file()
-
     def _sync_comparison_colors_for_current_file(self) -> None:
         app = self.app
         path = app._app_state.get("tdms_path")
@@ -1429,6 +1426,3 @@ class FileController(BaseAppController):
             item.color = colors.get(item.segment_index, item.color)
         if hasattr(app, "comparison"):
             app.comparison.refresh_list()
-
-    def _refresh_palette_sidebar(self) -> None:
-        self.app.views.refresh_palette_sidebar()

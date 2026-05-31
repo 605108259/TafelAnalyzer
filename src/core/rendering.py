@@ -1,6 +1,7 @@
 """matplotlib 图表渲染、图例/视图状态管理。"""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import matplotlib
@@ -31,28 +32,26 @@ from core.render_styles import (
     FONTSIZE_TITLE, FONTSIZE_LABEL, FONTSIZE_LEGEND, FONTSIZE_PLACEHOLDER,
 )
 
+_log = logging.getLogger(__name__)
+
+
+def _safe_set_legend_loc(legend, loc) -> bool:
+    try:
+        if hasattr(legend, "set_loc"):
+            legend.set_loc(loc)
+            return True
+        try:
+            legend._loc = loc
+        except Exception:
+            _log.debug("Failed to set legend._loc to %s", loc, exc_info=True)
+            return False
+        return True
+    except Exception:
+        _log.debug("Failed to set legend location to %s", loc, exc_info=True)
+        return False
+
 if TYPE_CHECKING:
     from ui.app import TafelAnalyzerApp
-
-
-def _legacy_reset_origin_view(app: TafelAnalyzerApp) -> None:
-    if len(app.fig.axes) < 2:
-        fallback = getattr(app, "_toolbar_home_original", None)
-        if callable(fallback):
-            fallback()
-        return
-    # 直接从图上已绘制的数据重新计算自动缩放极限，
-    # 不依赖可能被用户缩放覆盖的缓存状态。
-    for ax in app.fig.axes[:2]:
-        ax.relim()
-        ax.autoscale_view()
-    if app._app_state.get("comparison_mode"):
-        app._app_state["compare_plot_view_state"] = capture_plot_view_state(app, app.fig)
-        app._app_state["compare_plot_default_view_state"] = capture_plot_view_state(app, app.fig)
-    else:
-        app._app_state["single_plot_view_state"] = capture_plot_view_state(app, app.fig)
-        app._app_state["single_plot_default_view_state"] = capture_plot_view_state(app, app.fig)
-    app.canvas.draw_idle()
 
 
 def persist_current_plot_view_state(app: TafelAnalyzerApp) -> None:
@@ -354,8 +353,8 @@ def render_figure(
         ax1.set_ylabel(ref_prepared.tafel_y_label, fontsize=FONTSIZE_LABEL)
         ax1.grid(True)
         legend1 = _legend_if_needed(ax1)
-        enable_draggable_legend(legend0)
-        enable_draggable_legend(legend1)
+        configure_static_legend(legend0)
+        configure_static_legend(legend1)
     return ax0, ax1
 
 
@@ -367,70 +366,36 @@ def _legend_if_needed(ax):
 
 
 def enable_draggable_legend(legend) -> None:
+    """Backward-compatible alias for static legend configuration."""
+    if legend is None:
+        return
+    configure_static_legend(legend)
+
+
+def configure_static_legend(legend, loc: str = "upper right") -> None:
+    """Keep legends fixed across redraws and out of layout calculations."""
     if legend is None:
         return
     try:
         legend.set_draggable(False)
     except Exception:
-        pass
+        _log.debug("enable_draggable_legend: set_draggable failed", exc_info=True)
     try:
         legend.set_picker(True)
     except Exception:
-        pass
-
-
-def capture_legend_state(axis) -> dict | None:
-    legend = axis.get_legend()
-    if legend is None:
-        return None
-    state_data: dict[str, object] = {"loc": getattr(legend, "_loc", None)}
+        _log.debug("enable_draggable_legend: set_picker failed", exc_info=True)
     try:
-        canvas = axis.figure.canvas
-        renderer = canvas.get_renderer()
-        extent = legend.get_window_extent(renderer=renderer).transformed(axis.transAxes.inverted())
-        state_data["anchor"] = [float(extent.x0), float(extent.y0)]
-        return state_data
+        legend.set_in_layout(False)
     except Exception:
-        pass
+        _log.debug("configure_static_legend: set_in_layout failed", exc_info=True)
     try:
-        bbox_anchor = legend.get_bbox_to_anchor()
-        if bbox_anchor is not None:
-            bbox_axes = bbox_anchor.transformed(axis.transAxes.inverted())
-            bounds = [float(v) for v in bbox_axes.bounds]
-            if len(bounds) == 4 and all(np.isfinite(bounds)):
-                state_data["bbox"] = bounds
+        legend.set_bbox_to_anchor(None)
     except Exception:
-        pass
-    return state_data
-
-
-def apply_legend_state(app: TafelAnalyzerApp, axis, legend_state: dict | None) -> None:
-    legend = axis.get_legend()
-    if legend is None:
-        return
-    if legend_state:
         try:
-            anchor = legend_state.get("anchor")
-            if isinstance(anchor, (list, tuple)) and len(anchor) == 2 and all(np.isfinite(anchor)):
-                if hasattr(legend, "set_loc"):
-                    legend.set_loc("lower left")
-                else:
-                    legend._loc = 3
-                legend.set_bbox_to_anchor((float(anchor[0]), float(anchor[1])), transform=axis.transAxes)
-                enable_draggable_legend(legend)
-                return
-            loc = legend_state.get("loc")
-            if loc is not None:
-                if hasattr(legend, "set_loc"):
-                    legend.set_loc(loc)
-                else:
-                    legend._loc = loc
-            bbox = legend_state.get("bbox")
-            if isinstance(bbox, (list, tuple)) and len(bbox) == 4 and all(np.isfinite(bbox)):
-                legend.set_bbox_to_anchor(tuple(float(v) for v in bbox), transform=axis.transAxes)
+            legend._bbox_to_anchor = None
         except Exception:
-            pass
-    enable_draggable_legend(legend)
+            _log.debug("configure_static_legend: bbox reset failed", exc_info=True)
+    _safe_set_legend_loc(legend, loc)
 
 
 def capture_plot_view_state(app: TafelAnalyzerApp, target_fig: Figure | None = None) -> dict | None:
@@ -443,7 +408,6 @@ def capture_plot_view_state(app: TafelAnalyzerApp, target_fig: Figure | None = N
             {
                 "xlim": [float(v) for v in axis.get_xlim()],
                 "ylim": [float(v) for v in axis.get_ylim()],
-                "legend": capture_legend_state(axis),
             }
             for axis in axes
         ]
@@ -512,7 +476,7 @@ def apply_plot_view_state(
                 axis.set_ylim(float(ylim[0]), float(ylim[1]))
         except Exception:
             pass
-        apply_legend_state(app, axis, axis_state.get("legend"))
+        reset_legend_to_default(axis)
 
 
 def capture_axes_limits(app: TafelAnalyzerApp) -> list[tuple[tuple[float, float], tuple[float, float]]]:
@@ -528,31 +492,14 @@ def _autoscale_axis(axis) -> None:
         axis.relim(visible_only=True)
         axis.autoscale_view()
     except Exception:
-        pass
+        _log.debug("_autoscale_axis failed", exc_info=True)
 
 
 def reset_legend_to_default(axis) -> None:
     legend = axis.get_legend()
     if legend is None:
         return
-    try:
-        legend.set_bbox_to_anchor(None)
-    except Exception:
-        try:
-            legend._bbox_to_anchor = None
-        except Exception:
-            pass
-    try:
-        if hasattr(legend, "set_loc"):
-            legend.set_loc("upper right")
-        else:
-            legend._loc = 1
-    except Exception:
-        try:
-            legend._loc = 1
-        except Exception:
-            pass
-    enable_draggable_legend(legend)
+    configure_static_legend(legend, "upper right")
 
 
 def reset_origin_view(app: TafelAnalyzerApp) -> None:

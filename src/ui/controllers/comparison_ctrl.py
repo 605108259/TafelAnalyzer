@@ -69,42 +69,6 @@ class ComparisonController(BaseAppController):
         if hasattr(app, "files"):
             app.files.schedule_project_autosave()
 
-    def add_all_processed(self) -> None:
-        app = self.app
-        state = app.state
-        path = state.files.current_path
-        if not path:
-            return
-        prepared_by = app._app_state.get("prepared_by_segment", {})
-        fit_by = app._app_state.get("fit_by_segment", {})
-        alias = state.files.display_name(path)
-
-        for seg_idx in prepared_by:
-            item_id = comp.comparison_item_id(path, seg_idx)
-            color = app._app_state.get("segment_colors", {}).get(
-                int(seg_idx),
-                COMPARISON_COLORS[int(seg_idx) % len(COMPARISON_COLORS)],
-            )
-            state.comparison.upsert(ComparisonItem(
-                item_id=item_id,
-                file_path=path,
-                file_name=alias,
-                segment_index=seg_idx,
-                prepared=prepared_by[seg_idx],
-                fit=fit_by.get(seg_idx),
-                label=f"{alias}-第{seg_idx + 1}段",
-                color=color,
-                visible=True,
-            ))
-        self.refresh_list()
-        if hasattr(app, "files"):
-            app.files.schedule_project_autosave()
-
-    def delete_selected(self) -> None:
-        self.app.state.comparison.delete_highlighted()
-        self.refresh_list()
-        self._autosave_project()
-
     def remove_by_id(self, item_id: str) -> None:
         self.app.state.comparison.remove(item_id)
         self.refresh_list()
@@ -214,7 +178,11 @@ class ComparisonController(BaseAppController):
         if moved is None:
             self.app.views.refresh_comparison_list(rebuild=False)
             return
-        self.app.views.refresh_comparison_list()
+        from_row, to_row = moved
+        panel_moved = False
+        if hasattr(self.app, "comparison_panel"):
+            panel_moved = self.app.comparison_panel.move_row(from_row, to_row)
+        self.app.views.refresh_comparison_list(rebuild=not panel_moved)
         self._update_summary()
         self._schedule_rerender()
 
