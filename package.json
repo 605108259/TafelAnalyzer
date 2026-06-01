@@ -1,0 +1,16 @@
+{
+  "name": "tafel-analyzer-electron",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Electron + Web UI for Tafel Analyzer",
+  "main": "web/main.js",
+  "scripts": {
+    "web": "electron .",
+    "web:backend": "python src/web/backend.py",
+    "test": "python -m pytest"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7"
+  }
+}
+

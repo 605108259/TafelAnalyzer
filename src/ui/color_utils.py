@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import re
 
-from ui.theme import ACCENT, BORDER, BG_CARD
-
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -53,22 +51,4 @@ def interpolate_hex(left: str, right: str, t: float) -> str:
     return rgb_to_hex((r, g, blue))
 
 
-def swatch_button_style(hex_color: str, *, radius: int = 6, border_width: int = 1) -> str:
-    color = normalize_hex_color(hex_color)
-    return (
-        "QPushButton {"
-        f" background: {color};"
-        f" border: {border_width}px solid {BORDER};"
-        f" border-radius: {radius}px;"
-        "}"
-        "QPushButton:hover {"
-        f" border-color: {ACCENT};"
-        "}"
-        "QPushButton:focus {"
-        f" border-color: {ACCENT};"
-        "}"
-        "QPushButton:disabled {"
-        f" background: {BG_CARD};"
-        f" border-color: {BORDER};"
-        "}"
-    )
+

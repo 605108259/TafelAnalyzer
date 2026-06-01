@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any
 
 import matplotlib
 import numpy as np
@@ -13,9 +13,6 @@ from core.rendering import (
     configure_static_legend,
     valid_fit_source_indices,
 )
-
-if TYPE_CHECKING:
-    from ui.app import TafelAnalyzerApp
 
 LSV_STYLE_LINE_MARKER = "line_marker"
 LSV_STYLE_LINE = "line"
@@ -95,7 +92,7 @@ def _ordered_static_legend(ax, ordered_labels: list[str], *, fontsize: int = 8):
     return legend
 
 
-def render_comparison_empty(app: TafelAnalyzerApp) -> None:
+def render_comparison_empty(app: Any) -> None:
     from core.theme import MPL_RC, TEXT_SECONDARY
 
     app.fig.clear()
@@ -119,7 +116,7 @@ def render_comparison_empty(app: TafelAnalyzerApp) -> None:
 
 
 def render_comparison(
-    app: TafelAnalyzerApp,
+    app: Any,
     preserve_view_state: dict | list | None = None,
 ) -> None:
     from core.theme import MPL_RC, TEXT_PRIMARY

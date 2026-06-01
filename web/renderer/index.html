@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tafel Analyzer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="rail">
+        <button class="rail-btn active" data-panel="files" title="文件">F</button>
+        <button class="rail-btn" data-panel="comparison" title="对比">C</button>
+        <button class="rail-btn" data-panel="history" title="历史">H</button>
+      </aside>
+
+      <aside class="side">
+        <section class="panel active" id="panel-files">
+          <div class="panel-header">
+            <h2>文件</h2>
+            <button id="open-files">打开</button>
+          </div>
+          <div id="file-list" class="list"></div>
+
+          <div class="panel-header tight">
+            <h2>分段</h2>
+            <div class="split-buttons">
+              <button id="select-all">全选</button>
+              <button id="select-none">清空</button>
+            </div>
+          </div>
+          <div id="segment-list" class="list segments"></div>
+
+          <div class="actions">
+            <button id="run-fit" class="primary">自动拟合</button>
+            <button id="add-comparison">加入对比</button>
+          </div>
+
+          <div class="manual">
+            <h3>手动拟合区域</h3>
+            <div class="grid4">
+              <label>x min<input id="manual-x-min" /></label>
+              <label>x max<input id="manual-x-max" /></label>
+              <label>y min<input id="manual-y-min" /></label>
+              <label>y max<input id="manual-y-max" /></label>
+            </div>
+            <button id="manual-fit">应用手动拟合</button>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-comparison">
+          <div class="panel-header">
+            <h2>对比</h2>
+            <button id="show-comparison">显示</button>
+          </div>
+          <div class="control-row">
+            <label>LSV
+              <select id="lsv-style">
+                <option value="line_marker">点线</option>
+                <option value="line">折线</option>
+                <option value="scatter">散点</option>
+              </select>
+            </label>
+            <label class="check"><input id="fit-window" type="checkbox" /> 拟合附近</label>
+          </div>
+          <div id="comparison-list" class="list"></div>
+          <button id="clear-comparison">清空对比</button>
+        </section>
+
+        <section class="panel" id="panel-history">
+          <div class="panel-header">
+            <h2>历史</h2>
+            <button id="import-cache">导入</button>
+          </div>
+          <div id="history-list" class="list"></div>
+          <div class="actions">
+            <button id="export-cache">导出 v3</button>
+            <button id="export-cache-v2">导出 v2 JSON</button>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="toolbar">
+          <div class="formula">
+            <label>电位公式<input id="potential-formula" placeholder="[Vgs]" /></label>
+            <label>电流公式<input id="current-formula" placeholder="[Igs/area]" /></label>
+          </div>
+          <div class="params">
+            <label>E_eq<input id="e-eq" /></label>
+            <label>窗口<input id="window-range" /></label>
+            <label>η 范围<input id="eta-range" /></label>
+            <label>log(j) 范围<input id="logj-range" /></label>
+            <label>min R²<input id="min-r2" /></label>
+            <label>优先级
+              <select id="fit-priority">
+                <option value="slope">低斜率</option>
+                <option value="r2">高 R²</option>
+              </select>
+            </label>
+          </div>
+          <div class="exportbar">
+            <button id="apply-formulas">应用公式</button>
+            <button id="save-raw">导出原始</button>
+            <button id="save-processed">导出处理</button>
+            <button id="save-npz">导出 NPZ</button>
+            <button id="save-chart">保存图</button>
+          </div>
+        </header>
+
+        <section class="chart-wrap">
+          <img id="chart" alt="Tafel chart" />
+        </section>
+
+        <section class="summary">
+          <div id="fit-summary"></div>
+          <div id="status"></div>
+        </section>
+      </main>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>
+
