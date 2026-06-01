@@ -317,6 +317,14 @@ def load_app_settings(app: TafelAnalyzerApp) -> None:
     app._app_state["saved_parameter_defaults"] = normalize_parameter_settings(
         payload.get("saved_parameter_defaults")
     )
+    # Axis label overrides: persist renamed axis titles/labels globally
+    raw_overrides = payload.get("axis_label_overrides")
+    if isinstance(raw_overrides, dict):
+        overrides = {
+            str(k): str(v) for k, v in raw_overrides.items()
+            if isinstance(k, str) and isinstance(v, str) and v.strip()
+        }
+        app._app_state["axis_label_overrides"] = overrides
 
 
 def save_app_settings(app: TafelAnalyzerApp) -> None:
@@ -345,6 +353,9 @@ def save_app_settings(app: TafelAnalyzerApp) -> None:
         ),
         "saved_parameter_defaults": normalize_parameter_settings(
             app._app_state.get("saved_parameter_defaults")
+        ),
+        "axis_label_overrides": dict(
+            app._app_state.get("axis_label_overrides", {})
         ),
     }
     new_hash = payload_hash(payload)

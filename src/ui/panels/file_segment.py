@@ -32,6 +32,7 @@ class FileListItem(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.file_path = file_path
         self._display_name = display_name
+        self.setToolTip(str(file_path))
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 2, 8, 2)
         layout.setSpacing(6)
@@ -415,6 +416,15 @@ class FileSegmentPanel(QWidget):
         item.setSizeHint(widget.sizeHint())
         self.file_list.addItem(item)
         self.file_list.setItemWidget(item, widget)
+
+    def remove_file_path(self, path: Path) -> None:
+        """Remove a single file path from the list without full rebuild."""
+        row = self._row_for_path(path)
+        if row < 0:
+            return
+        self._file_paths.pop(row)
+        self._remove_file_row(row)
+        self._update_file_count()
 
     def _remove_file_row(self, row: int) -> None:
         if row < 0 or row >= self.file_list.count():

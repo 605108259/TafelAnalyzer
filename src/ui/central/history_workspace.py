@@ -267,7 +267,10 @@ class HistoryWorkspace(QWidget):
         if not cache_path:
             return
         self.set_busy(True)
-        QTimer.singleShot(0, lambda: self.restore_requested.emit(cache_path))
+        # Let the UI update before starting the synchronous restore work
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+        self.restore_requested.emit(cache_path)
 
     def set_busy(self, busy: bool) -> None:
         self.progress.setVisible(busy)

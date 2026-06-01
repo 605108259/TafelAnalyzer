@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 from ui.app import TafelAnalyzerApp
 
 qapp = QApplication(sys.argv)
+qapp.setStyle("Fusion")
 window = TafelAnalyzerApp()
 window.show()
 sys.exit(qapp.exec())

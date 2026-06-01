@@ -637,8 +637,7 @@ class FileController(BaseAppController):
             return
         if hasattr(self.app, "history_workspace"):
             self.app.history_workspace.set_busy(False)
-        self.app.status_bar.setText("加载失败")
-        QMessageBox.critical(self.app, "加载失败", msg)
+        self.app.status_bar.setText(f"加载失败: {msg[:80]}")
 
     # ━━ File removal ━━
 
@@ -654,15 +653,35 @@ class FileController(BaseAppController):
             }
         except Exception:
             pass
+        # Remember original order before removal
+        all_paths = list(app.state.files.selected_paths)
         app.state.files.remove_path(path)
         app.state.comparison.remove_file_items(path)
-        app.views.refresh_file_list()
+        # Remove single row (no full panel rebuild)
+        app.file_segment_panel.remove_file_path(path)
         app.comparison.refresh_list()
-        # Switch to next file or clear
+        # Switch to next file only if the removed file was the current one
         remaining = app.state.files.selected_paths
+        current_path = app._app_state.get("tdms_path")
+        removed_was_current = (
+            current_path is not None
+            and Path(str(current_path)) == Path(str(path))
+        )
         if remaining:
-            app.state.files.set_current_path(remaining[0])
-            self._load_file(remaining[0])
+            if removed_was_current:
+                # Jump to next file in original order, or previous if was last
+                try:
+                    idx = all_paths.index(path)
+                except ValueError:
+                    idx = 0
+                if idx >= len(all_paths) - 1:
+                    target = remaining[-1]  # was last → go to previous
+                else:
+                    # Find the path that was at idx+1 in remaining
+                    next_path = all_paths[idx + 1]
+                    target = next_path if next_path in remaining else remaining[0]
+                app.state.files.set_current_path(target)
+                self._load_file(target)
             self.schedule_project_autosave()
         else:
             app.state.reset_current_file()

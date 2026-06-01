@@ -24,14 +24,6 @@ class TafelAnalyzerApp(QMainWindow):
         self._install_tooltip_style()
         self.setStyleSheet(f"""
             QMainWindow {{ background: {BG_WINDOW}; }}
-            QToolTip {{
-                background-color: {BG_CARD};
-                color: {TEXT_PRIMARY};
-                border: 1px solid {BORDER};
-                padding: 4px 8px;
-                font-size: 11px;
-                border-radius: 4px;
-            }}
             QScrollBar:vertical {{
                 background: transparent;
                 width: 8px;

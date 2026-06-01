@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QThread, Signal, Qt
 
-from core.fitting import prepare_series, auto_tafel_fit, manual_tafel_fit, build_segment_infos
+from core.fitting import (
+    prepare_series, prepare_full_series, prepare_series_from_full,
+    auto_tafel_fit, manual_tafel_fit, build_segment_infos,
+)
 from core.types import PreparedSeries, TafelFit
 from core.utils import parse_range_text, priority_label_to_key
 from ui.controllers.base import BaseAppController
@@ -74,36 +79,69 @@ class FitWorker(QThread):
             prepared_map = {}
             fit_map = {}
             error_map = {}
+
+            # ━━ Separate cached vs uncached segments ━━
+            uncached_indices: list[int] = []
             for seg_idx in selected_indices:
-                try:
-                    prepared = prepared_cache.get(seg_idx)
-                    if prepared is None:
-                        prepared = prepare_series(
-                            channels,
-                            potential_formula=pot_formula,
-                            current_formula=cur_formula,
-                            e_eq=e_eq,
-                            segment_index=seg_idx,
-                            precomputed_segments=precomputed_segments,
-                        )
+                prepared = prepared_cache.get(seg_idx)
+                if prepared is not None:
                     prepared_map[seg_idx] = prepared
-                except Exception as exc:
-                    error_map[seg_idx] = str(exc)
-                    continue
+                else:
+                    uncached_indices.append(seg_idx)
+
+            # ━━ Precompute full-data once for all uncached segments ━━
+            if uncached_indices:
                 try:
-                    fit = auto_tafel_fit(
-                        prepared.eta,
-                        prepared.j,
-                        min_window=window_min,
-                        max_window=window_max,
-                        min_r2=min_r2,
-                        fit_priority=fit_priority,
-                        eta_range=eta_range,
-                        logj_range=logj_range,
+                    full_data, all_segments = prepare_full_series(
+                        channels,
+                        potential_formula=pot_formula,
+                        current_formula=cur_formula,
+                        e_eq=e_eq,
+                        precomputed_segments=precomputed_segments,
                     )
-                    fit_map[seg_idx] = fit
                 except Exception as exc:
-                    error_map[seg_idx] = str(exc)
+                    for seg_idx in uncached_indices:
+                        error_map[seg_idx] = str(exc)
+                    self.finished.emit(prepared_map, fit_map, error_map)
+                    return
+
+                for seg_idx in uncached_indices:
+                    try:
+                        segment = all_segments[seg_idx]
+                        prepared = prepare_series_from_full(full_data, segment)
+                        prepared_map[seg_idx] = prepared
+                    except Exception as exc:
+                        error_map[seg_idx] = str(exc)
+
+            # ━━ Fit all segments (parallel) ━━
+            pending_indices = [
+                idx for idx in selected_indices if idx not in error_map
+            ]
+            if pending_indices:
+                max_workers = min(8, os.cpu_count() or 4, len(pending_indices))
+
+                def _fit_one(seg_idx: int):
+                    prepared = prepared_map[seg_idx]
+                    fit = auto_tafel_fit(
+                        prepared.eta, prepared.j,
+                        min_window=window_min, max_window=window_max,
+                        min_r2=min_r2, fit_priority=fit_priority,
+                        eta_range=eta_range, logj_range=logj_range,
+                    )
+                    return seg_idx, fit, None
+
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {
+                        executor.submit(_fit_one, idx): idx
+                        for idx in pending_indices
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            seg_idx, fit, _exc = future.result()
+                            fit_map[seg_idx] = fit
+                        except Exception as exc:
+                            error_map[futures[future]] = str(exc)
+
             self.finished.emit(prepared_map, fit_map, error_map)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -364,6 +402,8 @@ class FittingController(BaseAppController):
         app.views.refresh_segments()
         if active_prepared is not None:
             app.views.render_single()
+            from core.rendering import reset_origin_view
+            reset_origin_view(app)
         if hasattr(app, "files"):
             app.files.autosave_project_history()
 

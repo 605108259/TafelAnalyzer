@@ -14,6 +14,7 @@ from matplotlib.widgets import RectangleSelector
 from core.data_cleaning import valid_measurement_mask
 from core.types import PreparedSeries, TafelFit
 from core.render_styles import (
+    MAX_DISPLAY_POINTS,
     LINEWIDTH_ACTIVE, LINEWIDTH_INACTIVE, LINEWIDTH_DEFAULT,
     LINEWIDTH_FIT_ACTIVE, LINEWIDTH_FIT_INACTIVE, LINEWIDTH_FIT_DEFAULT,
     ALPHA_ACTIVE, ALPHA_INACTIVE, ALPHA_DEFAULT,
@@ -133,6 +134,28 @@ def _compute_segment_styles(
     }
 
 
+def _apply_override(overrides: dict, key: str, setter) -> None:
+    """If *key* exists in *overrides*, call *setter* with its value."""
+    if key in overrides:
+        setter(overrides[key])
+
+
+def _downsample_for_display(x: np.ndarray, y: np.ndarray, mask: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    """Reduce point count to MAX_DISPLAY_POINTS via systematic sampling.
+
+    Returns (x_ds, y_ds, mask_ds).  If *mask* is None it is returned as-is.
+    Visually lossless at typical chart widths, but 10-50× faster Agg rendering.
+    """
+    n = int(x.size)
+    if n <= MAX_DISPLAY_POINTS:
+        return x, y, mask
+    step = max(1, n // MAX_DISPLAY_POINTS)
+    idx = np.arange(0, n, step)
+    if mask is not None:
+        return x[idx], y[idx], np.asarray(mask[idx], dtype=bool)
+    return x[idx], y[idx], None
+
+
 def _render_ej_plot(
     ax,
     display_indices: list[int],
@@ -150,9 +173,10 @@ def _render_ej_plot(
         is_active = style["is_active"]
         z = style["z"]
         label = f"第{segment_index + 1}段"
+        _pe, _pj, _ = _downsample_for_display(
+            segment_prepared.e, segment_prepared.j)
         ax.plot(
-            segment_prepared.e,
-            segment_prepared.j,
+            _pe, _pj,
             marker="o",
             linestyle="-",
             markersize=style["markersize"],
@@ -166,15 +190,17 @@ def _render_ej_plot(
         if segment_fit is not None:
             fit_indices = valid_fit_source_indices(segment_fit, segment_prepared)
             if fit_indices.size:
+                _ex, _ej, _ = _downsample_for_display(
+                    segment_prepared.e[fit_indices], segment_prepared.j[fit_indices])
                 ax.scatter(
-                    segment_prepared.e[fit_indices],
-                    segment_prepared.j[fit_indices],
+                    _ex, _ej,
                     s=SCATTER_RAW_FIT_ACTIVE if is_active else SCATTER_RAW_FIT_DEFAULT,
                     color=color,
                     edgecolors="#111827",
                     linewidths=style["edgewidth"],
                     alpha=ALPHA_SCATTER_SELECTED,
                     zorder=z + 1,
+                    rasterized=True,
                 )
 
 
@@ -202,34 +228,40 @@ def _render_tafel_plot(
         if segment_fit is None:
             x_seg, y_seg = compute_tafel_points(segment_prepared)
             if x_seg.size:
+                _tx, _ty, _ = _downsample_for_display(x_seg, y_seg)
                 ax.scatter(
-                    x_seg,
-                    y_seg,
+                    _tx, _ty,
                     s=SCATTER_NO_FIT_ACTIVE if is_active else (SCATTER_NO_FIT_DEFAULT if not has_active else SCATTER_NO_FIT_INACTIVE),
                     alpha=ALPHA_SCATTER_NO_FIT_ACTIVE if is_active else (ALPHA_SCATTER_NO_FIT_DEFAULT if not has_active else ALPHA_SCATTER_NO_FIT_INACTIVE),
                     color=color,
                     zorder=z,
+                    rasterized=True,
                 )
         else:
             x_seg, y_seg, mask = clean_fit_plot_arrays(segment_fit)
             if not x_seg.size:
                 continue
+
+            # Downsample for display (fitting uses full data)
+            x_ds, y_ds, mask_ds = _downsample_for_display(x_seg, y_seg, mask)
+            if mask_ds is None:
+                mask_ds = np.zeros_like(x_ds, dtype=bool)
             ax.scatter(
-                x_seg[~mask],
-                y_seg[~mask],
+                x_ds[~mask_ds], y_ds[~mask_ds],
                 s=SCATTER_FIT_DESELECTED_ACTIVE if is_active else (SCATTER_FIT_DESELECTED_DEFAULT if not has_active else SCATTER_FIT_DESELECTED_INACTIVE),
                 alpha=ALPHA_SCATTER_DESELECTED_ACTIVE if is_active else (ALPHA_SCATTER_DESELECTED_DEFAULT if not has_active else ALPHA_SCATTER_DESELECTED_INACTIVE),
                 color=color,
                 zorder=z,
+                rasterized=True,
             )
             ax.scatter(
-                x_seg[mask],
-                y_seg[mask],
+                x_ds[mask_ds], y_ds[mask_ds],
                 s=SCATTER_FIT_SELECTED_ACTIVE if is_active else (SCATTER_FIT_SELECTED_DEFAULT if not has_active else SCATTER_FIT_SELECTED_INACTIVE),
                 color=color,
                 edgecolors="#111827",
                 linewidths=style["edgewidth"],
                 zorder=z + 1,
+                rasterized=True,
             )
             xs = x_seg[mask]
             if xs.size >= 2:
@@ -269,6 +301,35 @@ def _render_tafel_plot(
                 ))
 
 
+def _clear_axes_artists(ax) -> None:
+    """Remove all plotted artists from an axis without destroying the axis itself.
+
+    Much cheaper than fig.clear() — preserves gridspec, subplot positions,
+    tick state, and axis limits.
+    """
+    for line in list(ax.lines):
+        line.remove()
+    for coll in list(ax.collections):
+        coll.remove()
+    for patch in list(ax.patches):
+        patch.remove()
+    legend = ax.get_legend()
+    if legend is not None:
+        legend.remove()
+
+
+def _needs_full_rebuild(app: TafelAnalyzerApp, target_fig: Figure) -> bool:
+    """Return True if the figure cache is stale and needs a full rebuild."""
+    cache = app._app_state.get("_chart_cache")
+    if cache is None:
+        return True
+    if cache.get("fig_id") != id(target_fig):
+        return True
+    if len(target_fig.axes) < 2:
+        return True
+    return False
+
+
 def render_figure(
     app: TafelAnalyzerApp,
     target_fig: Figure,
@@ -281,10 +342,13 @@ def render_figure(
 ):
     from core.theme import MPL_RC, TEXT_PRIMARY
 
-    target_fig.clear()
     if fit_error_by_segment is None:
         fit_error_by_segment = {}
+
+    # ━━ Empty data path ━━
     if not prepared_by_segment:
+        target_fig.clear()
+        app._app_state["_chart_cache"] = None
         with matplotlib.rc_context(MPL_RC):
             gs = target_fig.add_gridspec(1, 2, wspace=GRIDSPEC_WSPACE, left=GRIDSPEC_LEFT, right=GRIDSPEC_RIGHT, top=GRIDSPEC_TOP, bottom=GRIDSPEC_BOTTOM)
             ax0 = target_fig.add_subplot(gs[0])
@@ -294,23 +358,39 @@ def render_figure(
             ax0.set_title("无数据", fontsize=FONTSIZE_TITLE, color=TEXT_PRIMARY, pad=8)
             ax1.set_title("Tafel", fontsize=FONTSIZE_TITLE, color=TEXT_PRIMARY, pad=8)
         return ax0, ax1
+
     ref_prepared = prepared_by_segment.get(active_index) or next(iter(prepared_by_segment.values()))
     has_active = active_index in prepared_by_segment
-    with matplotlib.rc_context(MPL_RC):
-        gs = target_fig.add_gridspec(1, 2, wspace=GRIDSPEC_WSPACE, left=GRIDSPEC_LEFT, right=GRIDSPEC_RIGHT, top=GRIDSPEC_TOP, bottom=GRIDSPEC_BOTTOM)
-        ax0 = target_fig.add_subplot(gs[0])
-        ax1 = target_fig.add_subplot(gs[1])
 
-        # Build per-segment style dict
-        segment_styles: dict[int, dict] = {}
-        for segment_index in display_indices:
-            if segment_index not in prepared_by_segment:
-                continue
-            is_active = has_active and segment_index == active_index
-            style = _compute_segment_styles(has_active, is_active)
-            style["color"] = p_get_segment_color(app, segment_index)
-            style["has_active"] = has_active
-            segment_styles[segment_index] = style
+    # ━━ Decide: full rebuild or incremental ━━
+    full_rebuild = _needs_full_rebuild(app, target_fig)
+
+    if full_rebuild:
+        target_fig.clear()
+        # Cache figure identity for next incremental check
+        app._app_state["_chart_cache"] = {"fig_id": id(target_fig)}
+    else:
+        # Incremental: reuse existing axes, only strip artists
+        ax0, ax1 = target_fig.axes[0], target_fig.axes[1]
+        _clear_axes_artists(ax0)
+        _clear_axes_artists(ax1)
+
+    # ━━ Build per-segment style dict ━━
+    segment_styles: dict[int, dict] = {}
+    for segment_index in display_indices:
+        if segment_index not in prepared_by_segment:
+            continue
+        is_active = has_active and segment_index == active_index
+        style = _compute_segment_styles(has_active, is_active)
+        style["color"] = p_get_segment_color(app, segment_index)
+        style["has_active"] = has_active
+        segment_styles[segment_index] = style
+
+    with matplotlib.rc_context(MPL_RC):
+        if full_rebuild:
+            gs = target_fig.add_gridspec(1, 2, wspace=GRIDSPEC_WSPACE, left=GRIDSPEC_LEFT, right=GRIDSPEC_RIGHT, top=GRIDSPEC_TOP, bottom=GRIDSPEC_BOTTOM)
+            ax0 = target_fig.add_subplot(gs[0])
+            ax1 = target_fig.add_subplot(gs[1])
 
         _render_ej_plot(ax0, display_indices, prepared_by_segment, fit_by_segment, segment_styles)
         _render_tafel_plot(
@@ -355,6 +435,23 @@ def render_figure(
         legend1 = _legend_if_needed(ax1)
         configure_static_legend(legend0)
         configure_static_legend(legend1)
+
+        # Apply user-saved axis label overrides (double-click rename)
+        overrides = app._app_state.get("axis_label_overrides", {})
+        _apply_override(overrides, "single_ax0_xlabel", ax0.set_xlabel)
+        _apply_override(overrides, "single_ax0_ylabel", ax0.set_ylabel)
+        _apply_override(overrides, "single_ax0_title", ax0.set_title)
+        _apply_override(overrides, "single_ax1_xlabel", ax1.set_xlabel)
+        _apply_override(overrides, "single_ax1_ylabel", ax1.set_ylabel)
+        _apply_override(overrides, "single_ax1_title", ax1.set_title)
+
+        # Force recalc of data/view limits now so that capture_plot_view_state
+        # (called after render_figure returns) gets correct autoscale values
+        # instead of stale limits from reused axes or blank (0,1) defaults.
+        ax0.relim(visible_only=True)
+        ax0.autoscale_view()
+        ax1.relim(visible_only=True)
+        ax1.autoscale_view()
     return ax0, ax1
 
 
@@ -488,9 +585,7 @@ def capture_axes_limits(app: TafelAnalyzerApp) -> list[tuple[tuple[float, float]
 
 def _autoscale_axis(axis) -> None:
     try:
-        axis.set_autoscale_on(True)
-        axis.relim(visible_only=True)
-        axis.autoscale_view()
+        axis.autoscale(enable=True)
     except Exception:
         _log.debug("_autoscale_axis failed", exc_info=True)
 
@@ -503,6 +598,12 @@ def reset_legend_to_default(axis) -> None:
 
 
 def reset_origin_view(app: TafelAnalyzerApp) -> None:
+    """Reset both axes to data autoscale, update legend, and redraw.
+
+    Always forces autoscale rather than relying on a previously-captured
+    view-state dict, because set_xlim / set_ylim leave autoscale disabled
+    after user zoom/pan, and draw_idle() will not override manual limits.
+    """
     axes = app.fig.axes[:2]
     if len(axes) < 2:
         fallback = getattr(app, "_toolbar_home_original", None)
@@ -517,18 +618,15 @@ def reset_origin_view(app: TafelAnalyzerApp) -> None:
     else:
         default_key = "single_plot_default_view_state"
         current_key = "single_plot_view_state"
-    default_state = app._app_state.get(default_key)
 
     for ax in axes:
         reset_legend_to_default(ax)
+        try:
+            ax.autoscale(enable=True, tight=False)
+        except Exception:
+            _log.debug("reset_origin_view autoscale failed", exc_info=True)
 
-    if default_state:
-        apply_plot_view_state(app, axes, default_state)
-    else:
-        for ax in axes:
-            _autoscale_axis(ax)
-        app._app_state[default_key] = capture_plot_view_state(app, app.fig)
-
+    app._app_state[default_key] = capture_plot_view_state(app, app.fig)
     app._app_state[current_key] = capture_plot_view_state(app, app.fig)
     app.canvas.draw_idle()
 
@@ -554,7 +652,6 @@ def destroy_selector(app: TafelAnalyzerApp) -> None:
 
 
 def refresh_selector(app: TafelAnalyzerApp) -> None:
-    destroy_selector(app)
     manual_current = app._app_state.get("manual_mode", False)
     if hasattr(app, "state"):
         manual_current = app.state.interaction.manual_is_current(
@@ -562,10 +659,24 @@ def refresh_selector(app: TafelAnalyzerApp) -> None:
             generation=app.state.operations.generation,
         )
     if not manual_current:
+        destroy_selector(app)
         return
     ax_tafel = app._app_state.get("ax_tafel")
     if ax_tafel is None:
+        destroy_selector(app)
         return
+
+    # 复用已有 selector（同一 axes 上不销毁重建）
+    existing = app._app_state.get("selector")
+    if existing is not None:
+        try:
+            if getattr(existing, "ax", None) is ax_tafel:
+                existing.set_active(True)
+                return
+        except Exception:
+            pass
+
+    destroy_selector(app)
     selector = RectangleSelector(
         ax_tafel,
         app.fitting.on_manual_select,
@@ -621,6 +732,7 @@ def draw_placeholder(app: TafelAnalyzerApp) -> None:
     from core.theme import MPL_RC, TEXT_SECONDARY
 
     app.fig.clear()
+    app._app_state["_chart_cache"] = None  # 占位图清空增量缓存
     with matplotlib.rc_context(MPL_RC):
         ax = app.fig.add_subplot(111)
         ax.text(

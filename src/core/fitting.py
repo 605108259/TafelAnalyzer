@@ -152,10 +152,11 @@ def _best_window_fit(
 ) -> tuple[int, int, float, float]:
     cum_x, cum_y, cum_xx, cum_xy, cum_yy = _build_cumulative(x, y)
     n = int(x.size)
-    best = None
-    for window in range(min_window, max_window + 1):
+
+    def _eval_window(window: int):
+        """Evaluate all start positions for a single window size."""
         if window > n:
-            break
+            return None
         w = float(window)
         num_starts = n - window + 1
         starts = np.arange(num_starts)
@@ -169,35 +170,66 @@ def _best_window_fit(
 
         var_x = w * sxx - sx * sx
         valid = np.abs(var_x) >= VAR_EPSILON
-
         if not np.any(valid):
-            continue
+            return None
 
         cov_xy = w * sxy - sx * sy
         slopes = np.zeros_like(cov_xy, dtype=float)
         np.divide(cov_xy, var_x, out=slopes, where=valid)
         var_y = w * syy - sy * sy
-        r2 = np.zeros_like(cov_xy, dtype=float)
+        r2_arr = np.zeros_like(cov_xy, dtype=float)
         flat_y = valid & (np.abs(var_y) < VAR_EPSILON)
-        r2[flat_y] = 1.0
+        r2_arr[flat_y] = 1.0
         normal = valid & ~flat_y & (np.abs(var_y) >= VAR_EPSILON)
-        np.divide(cov_xy * cov_xy, var_x * var_y, out=r2, where=normal)
+        np.divide(cov_xy * cov_xy, var_x * var_y, out=r2_arr, where=normal)
 
         if min_r2 is not None:
-            valid = valid & (r2 >= float(min_r2))
+            valid = valid & (r2_arr >= float(min_r2))
             if not np.any(valid):
-                continue
+                return None
 
         valid_indices = np.where(valid)[0]
         if valid_indices.size == 0:
-            continue
+            return None
         if fit_priority == "slope":
             best_local_idx = valid_indices[np.argmin(np.abs(slopes[valid_indices]))]
         else:
-            best_local_idx = valid_indices[np.argmax(r2[valid_indices])]
-        rank = _window_rank(float(r2[best_local_idx]), float(slopes[best_local_idx]), window, fit_priority)
-        if best is None or rank < best[0]:
-            best = (rank, int(best_local_idx), int(best_local_idx) + window, float(slopes[best_local_idx]), float(r2[best_local_idx]))
+            best_local_idx = valid_indices[np.argmax(r2_arr[valid_indices])]
+        rank = _window_rank(float(r2_arr[best_local_idx]), float(slopes[best_local_idx]), window, fit_priority)
+        return (rank, int(best_local_idx), int(best_local_idx) + window,
+                float(slopes[best_local_idx]), float(r2_arr[best_local_idx]))
+
+    # ━━ Sparse window search ━━
+    window_count = max_window - min_window + 1
+    if window_count <= 4:
+        windows_coarse = list(range(min_window, max_window + 1))
+        stride = 1
+    else:
+        stride = max(2, window_count // 4)
+        windows_coarse = list(range(min_window, max_window + 1, stride))
+        if windows_coarse[-1] != max_window:
+            windows_coarse.append(max_window)
+
+    best = None
+    checked: set[int] = set()
+    for window in windows_coarse:
+        checked.add(window)
+        result = _eval_window(window)
+        if result is not None and (best is None or result[0] < best[0]):
+            best = result
+
+    # ━━ Refinement around best window ━━
+    if stride > 1 and best is not None:
+        best_window = best[2] - best[1]
+        refine_min = max(min_window, best_window - stride + 1)
+        refine_max = min(max_window, best_window + stride - 1)
+        for window in range(refine_min, refine_max + 1):
+            if window in checked:
+                continue
+            checked.add(window)
+            result = _eval_window(window)
+            if result is not None and result[0] < best[0]:
+                best = result
 
     if best is None:
         if min_r2 is not None:
@@ -439,6 +471,90 @@ def build_segment_infos(
         POTENTIAL_PREFERRED_NAMES,
     )
     return _build_segment_infos_from_values(potential_result.values, min_segment_length=6)
+
+
+def prepare_full_series(
+    channels: dict[str, np.ndarray],
+    *,
+    potential_formula: str | None = None,
+    current_formula: str | None = None,
+    e_eq: float = 0.0,
+    precomputed_segments: list[SegmentInfo] | None = None,
+) -> tuple[dict, list[SegmentInfo]]:
+    """Evaluate formulas once on the full data range.
+
+    Returns (full_data_dict, segments).  Per-segment slicing via
+    :func:`prepare_series_from_full` avoids re-evaluating formulas.
+    """
+    normalized_potential = normalize_formula(channels, potential_formula, POTENTIAL_PREFERRED_NAMES)
+    normalized_current = normalize_formula(channels, current_formula, CURRENT_PREFERRED_NAMES)
+    segments = precomputed_segments if precomputed_segments is not None else build_segment_infos(channels, normalized_potential)
+
+    potential_result = evaluate_formula(channels, normalized_potential, POTENTIAL_PREFERRED_NAMES)
+    current_result = evaluate_formula(channels, normalized_current, CURRENT_PREFERRED_NAMES)
+
+    raw_e_full = np.asarray(channels[potential_result.primary_channel], dtype=float).reshape(-1)
+    raw_j_full = np.asarray(channels[current_result.primary_channel], dtype=float).reshape(-1)
+    processed_e_full = np.asarray(potential_result.values, dtype=float).reshape(-1)
+    processed_j_full = np.asarray(current_result.values, dtype=float).reshape(-1)
+
+    n_full = int(min(raw_e_full.size, raw_j_full.size, processed_e_full.size, processed_j_full.size))
+    raw_e_full = np.asarray(raw_e_full[:n_full], dtype=float)
+    raw_j_full = np.asarray(raw_j_full[:n_full], dtype=float)
+    processed_e_full = np.asarray(processed_e_full[:n_full], dtype=float)
+    processed_j_full = np.asarray(processed_j_full[:n_full], dtype=float)
+
+    valid_mask_full = valid_measurement_mask(raw_e_full, raw_j_full, processed_e_full, processed_j_full)
+    eta_full = float(e_eq) - processed_e_full
+
+    full_data = {
+        "raw_e": raw_e_full, "raw_j": raw_j_full,
+        "processed_e": processed_e_full, "processed_j": processed_j_full,
+        "eta": eta_full, "valid_mask": valid_mask_full,
+        "e_label": potential_result.formula, "j_label": current_result.formula,
+        "potential_channel": potential_result.primary_channel,
+        "current_channel": current_result.primary_channel,
+        "potential_formula": potential_result.formula,
+        "current_formula": current_result.formula,
+        "e_eq": float(e_eq),
+    }
+    return full_data, segments
+
+
+def prepare_series_from_full(
+    full_data: dict,
+    segment: SegmentInfo,
+) -> PreparedSeries:
+    """Slice precomputed full-data arrays for *segment*."""
+    start, end = segment.start, segment.end
+    raw_e = np.asarray(full_data["raw_e"][start:end], dtype=float)
+    raw_j = np.asarray(full_data["raw_j"][start:end], dtype=float)
+    processed_e = np.asarray(full_data["processed_e"][start:end], dtype=float)
+    processed_j = np.asarray(full_data["processed_j"][start:end], dtype=float)
+    eta = np.asarray(full_data["eta"][start:end], dtype=float)
+    valid_mask = np.asarray(full_data["valid_mask"][start:end], dtype=bool)
+
+    raw_e = raw_e[valid_mask]; raw_j = raw_j[valid_mask]
+    processed_e = processed_e[valid_mask]; processed_j = processed_j[valid_mask]
+    eta = eta[valid_mask]
+
+    n = int(min(raw_e.size, raw_j.size, processed_e.size, processed_j.size, eta.size))
+    return PreparedSeries(
+        raw_e=np.asarray(raw_e[:n], dtype=float),
+        raw_j=np.asarray(raw_j[:n], dtype=float),
+        e=np.asarray(processed_e[:n], dtype=float),
+        j=np.asarray(processed_j[:n], dtype=float),
+        eta=np.asarray(eta[:n], dtype=float),
+        e_label=full_data["e_label"],
+        j_label=full_data["j_label"],
+        tafel_y_label="过电位（V）",
+        potential_channel=full_data["potential_channel"],
+        current_channel=full_data["current_channel"],
+        potential_formula=full_data["potential_formula"],
+        current_formula=full_data["current_formula"],
+        e_eq=full_data["e_eq"],
+        segment=SegmentInfo(index=segment.index, start=start, end=start + n),
+    )
 
 
 def prepare_series(

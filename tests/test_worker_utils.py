@@ -39,7 +39,7 @@ class FakeWorker:
 
 
 class WorkerUtilsTests(unittest.TestCase):
-    def test_stop_worker_disconnects_signals_and_waits_when_running(self) -> None:
+    def test_stop_worker_quits_and_waits_when_running(self) -> None:
         from ui.controllers.worker_utils import stop_worker
 
         worker = FakeWorker(running=True)
@@ -47,8 +47,8 @@ class WorkerUtilsTests(unittest.TestCase):
         result = stop_worker(worker, timeout_ms=1234)
 
         self.assertIsNone(result)
-        self.assertEqual(worker.finished.disconnect_count, 1)
-        self.assertEqual(worker.error.disconnect_count, 1)
+        # stop_worker intentionally does NOT disconnect signals —
+        # handlers use a generation check to ignore stale results.
         self.assertEqual(worker.quit_count, 1)
         self.assertEqual(worker.wait_timeout, 1234)
 

@@ -1,9 +1,9 @@
 {
-  "version": "1.0.6",
-  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.6-setup.exe",
-  "filename": "TAFSQ-1.0.6-setup.exe",
-  "sha256": "eaf0adf06ec7b001c5f2e0f119fb100657e7b8d23c8dc0486eafeeddf236d314",
-  "size": 66045257,
+  "version": "1.0.7",
+  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.7-setup.exe",
+  "filename": "TAFSQ-1.0.7-setup.exe",
+  "sha256": "63430e9e692339a01417bcd70c9d2f1ed412f79376aad639631e4dff6a12fdfe",
+  "size": 92860074,
   "mandatory": false,
-  "notes": "Bump release version to 1.0.6 for the latest side panel and TDMS channel handling fixes."
+  "notes": "死代码清理、Figure 内存泄漏修复、工作线程安全加固、legend._loc 段错误防护、stop_worker 僵尸状态修复"
 }

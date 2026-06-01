@@ -51,6 +51,7 @@ class ComparisonItemWidget(QWidget):
                  file_name: str = "", segment_index: int = -1):
         super().__init__()
         self.setObjectName("ComparisonItem")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.item_id = item_id
         self._color = color
         self._original_name = display_name
@@ -117,6 +118,23 @@ class ComparisonItemWidget(QWidget):
         for w in (self.cb, self.name_edit, self.color_btn, self.rm_btn):
             w.installEventFilter(self)
 
+    def event(self, event):
+        """Intercept ToolTip to force white bg via palette."""
+        if event.type() == event.Type.ToolTip and self.toolTip():
+            from PySide6.QtWidgets import QToolTip
+            from PySide6.QtGui import QPalette, QColor
+            old = QToolTip.palette()
+            p = QPalette()
+            p.setColor(QPalette.ColorRole.ToolTipBase, QColor("#ffffff"))
+            p.setColor(QPalette.ColorRole.ToolTipText, QColor("#0f172a"))
+            p.setColor(QPalette.ColorRole.Window, QColor("#ffffff"))
+            p.setColor(QPalette.ColorRole.Base, QColor("#ffffff"))
+            QToolTip.setPalette(p)
+            QToolTip.showText(event.globalPos(), self.toolTip(), self)
+            QToolTip.setPalette(old)
+            return True
+        return super().event(event)
+
     def sizeHint(self):
         base = super().sizeHint()
         base.setHeight(max(base.height(), 28))
@@ -181,7 +199,9 @@ class ComparisonItemWidget(QWidget):
                 f"border-left: 3px solid #2563eb; border-radius: 4px; }}"
             )
         else:
-            self.setStyleSheet("")
+            self.setStyleSheet(
+                "QWidget#ComparisonItem { background: transparent; border: none; }"
+            )
 
     def eventFilter(self, obj, event):
         if obj is self.name_edit and event.type() == QEvent.Type.MouseButtonDblClick:
@@ -221,6 +241,7 @@ class ComparisonItemList(QScrollArea):
         self.setFrameShape(QScrollArea.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
 
         self._content = QWidget()
         self._content.setStyleSheet("background: transparent;")

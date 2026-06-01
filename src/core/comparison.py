@@ -221,6 +221,16 @@ def render_comparison(
         ax1.grid(True)
         _ordered_static_legend(ax1, stable_tafel_labels, fontsize=8)
 
+        # Apply user-saved axis label overrides (double-click rename)
+        from core.rendering import _apply_override
+        overrides = app._app_state.get("axis_label_overrides", {})
+        _apply_override(overrides, "comp_ax0_xlabel", ax0.set_xlabel)
+        _apply_override(overrides, "comp_ax0_ylabel", ax0.set_ylabel)
+        _apply_override(overrides, "comp_ax0_title", ax0.set_title)
+        _apply_override(overrides, "comp_ax1_xlabel", ax1.set_xlabel)
+        _apply_override(overrides, "comp_ax1_ylabel", ax1.set_ylabel)
+        _apply_override(overrides, "comp_ax1_title", ax1.set_title)
+
     app._app_state["compare_plot_default_view_state"] = capture_plot_view_state(app, app.fig)
     apply_plot_view_state(app, [ax0, ax1], preserve_view_state)
     app._app_state["ax_tafel"] = None
