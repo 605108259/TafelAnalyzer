@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 
 APP_NAME = "TAFSQ"
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 UPDATE_MANIFEST_URL = "http://107.174.62.19/tafsq/update.json"
 
 

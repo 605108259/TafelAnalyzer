@@ -4,13 +4,13 @@
 ; 软件名称：安装向导标题、开始菜单名称、桌面快捷方式名称都会用到
 #define MyAppName "TAFSQ"
 ; 软件版本号：会显示在安装包和“应用和功能”里
-#define MyAppVersion "1.0.7"
+#define MyAppVersion "1.0.8"
 ; 发布者名称：会显示在安装信息里
 #define MyAppPublisher "JXSQ"
 ; 主程序 EXE 文件名：必须和 dist\TafelAnalyzer 里的实际文件一致
 #define MyAppExeName "TAFSQ.exe"
 ; 打包后的发布目录：安装包会把这里面的内容全部打进去
-#define MyAppSourceDir "dist-1.0.7\TAFSQ"
+#define MyAppSourceDir "dist\TAFSQ"
 ; 安装包图标文件：Inno Setup 这里必须使用 .ico，不能直接用 .png
 #define MyAppIconFile "icons\ico.ico"
 ; 安装后图标文件名（去掉路径前缀，复制到安装目录后就是纯文件名）
@@ -36,7 +36,7 @@ PrivilegesRequired=admin
 ; 安装包输出目录
 OutputDir=installer_output
 ; 安装包输出文件名（不含 .exe 后缀）
-OutputBaseFilename=TAFSQ-1.0.7-setup
+OutputBaseFilename=TAFSQ-1.0.8-setup
 ; 安装包自身显示的图标
 SetupIconFile={#MyAppIconFile}
 ; 压缩方式，通常不用改
