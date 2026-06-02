@@ -7,10 +7,12 @@ from typing import TYPE_CHECKING
 import matplotlib
 import numpy as np
 from matplotlib.figure import Figure
+from core.render_styles import MAX_DISPLAY_POINTS
 from core.rendering import (
+    _clear_axes_artists,
     clean_fit_plot_data,
-    compute_tafel_points,
     configure_static_legend,
+    compute_tafel_points,
     valid_fit_source_indices,
 )
 
@@ -21,6 +23,50 @@ LSV_STYLE_LINE_MARKER = "line_marker"
 LSV_STYLE_LINE = "line"
 LSV_STYLE_SCATTER = "scatter"
 LSV_STYLES = {LSV_STYLE_LINE_MARKER, LSV_STYLE_LINE, LSV_STYLE_SCATTER}
+COMPARISON_TOTAL_DISPLAY_POINTS = 5000
+COMPARISON_MIN_DISPLAY_POINTS = 100
+
+
+def _comparison_point_limit(item_count: int) -> int:
+    if item_count <= 0:
+        return MAX_DISPLAY_POINTS
+    return max(
+        COMPARISON_MIN_DISPLAY_POINTS,
+        min(MAX_DISPLAY_POINTS, COMPARISON_TOTAL_DISPLAY_POINTS // item_count),
+    )
+
+
+def _downsample_display_arrays(
+    x: np.ndarray,
+    y: np.ndarray,
+    mask: np.ndarray | None = None,
+    *,
+    limit: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    n = int(min(np.asarray(x).size, np.asarray(y).size))
+    if n <= int(limit):
+        return x[:n], y[:n], None if mask is None else np.asarray(mask)[:n]
+    step = max(1, n // int(limit))
+    idx = np.arange(0, n, step)
+    if mask is None:
+        return x[idx], y[idx], None
+    return x[idx], y[idx], np.asarray(mask)[idx]
+
+
+def _compute_tafel_points_for_display(prepared, *, limit: int) -> tuple[np.ndarray, np.ndarray]:
+    j, eta, _ = _downsample_display_arrays(prepared.j, prepared.eta, limit=limit)
+    n = int(min(j.size, eta.size))
+    if n == 0:
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+    j = np.asarray(j[:n], dtype=float)
+    y = np.asarray(eta[:n], dtype=float)
+    mask = np.isfinite(j) & np.isfinite(y) & (np.abs(j) > 0.0)
+    if not np.any(mask):
+        return np.asarray([], dtype=float), np.asarray([], dtype=float)
+    x = np.log10(np.abs(j[mask]))
+    y = y[mask]
+    order = np.argsort(x)
+    return x[order], y[order]
 
 
 def comparison_item_id(file_path: Path, segment_index: int) -> str:
@@ -135,6 +181,7 @@ def render_comparison(
     if not visible_items:
         render_comparison_empty(app)
         return
+    display_limit = _comparison_point_limit(len(visible_items))
 
     highlight_row = app._app_state.get("comparison_highlight_row", -1)
     all_items = app._app_state.get("comparison_items", [])
@@ -143,17 +190,25 @@ def render_comparison(
         highlight_id = all_items[highlight_row].item_id
     lsv_style = normalize_lsv_style(app._app_state.get("comparison_lsv_style"))
     use_tafel_window = bool(app._app_state.get("comparison_tafel_fit_window", False))
+    show_legend = bool(app._app_state.get("comparison_show_legend", True))
     stable_labels = [comparison_item_label(item) for item in visible_items]
     stable_tafel_labels = [
         f"{label} ({item.fit.slope_mv_per_dec:.1f} mV/dec)" if item.fit is not None else label
         for item, label in zip(visible_items, stable_labels)
     ]
 
-    app.fig.clear()
+    reuse_axes = len(app.fig.axes) >= 2
+    if reuse_axes:
+        ax0, ax1 = app.fig.axes[:2]
+        _clear_axes_artists(ax0)
+        _clear_axes_artists(ax1)
+    else:
+        app.fig.clear()
     with matplotlib.rc_context(MPL_RC):
-        gs = app.fig.add_gridspec(1, 2, wspace=0.30, left=0.10, right=0.97, top=0.92, bottom=0.12)
-        ax0 = app.fig.add_subplot(gs[0])
-        ax1 = app.fig.add_subplot(gs[1])
+        if not reuse_axes:
+            gs = app.fig.add_gridspec(1, 2, wspace=0.30, left=0.10, right=0.97, top=0.92, bottom=0.12)
+            ax0 = app.fig.add_subplot(gs[0])
+            ax1 = app.fig.add_subplot(gs[1])
 
         # Draw non-highlighted items first, then highlighted on top
         draw_order = [it for it in visible_items if it.item_id != highlight_id]
@@ -169,18 +224,27 @@ def render_comparison(
             ms = 5.0 if is_highlighted else 3.0
             z = 5 if is_highlighted else 1
 
+            e_show, j_show, _ = _downsample_display_arrays(
+                prepared.e, prepared.j, limit=display_limit,
+            )
             ax0.plot(
-                prepared.e, prepared.j,
+                e_show, j_show,
                 **lsv_plot_kwargs(lsv_style, linewidth=lw, markersize=ms),
                 color=color, alpha=0.9, label=label, zorder=z,
             )
             if fit is not None:
                 fit_indices = valid_fit_source_indices(fit, prepared)
                 if fit_indices.size:
+                    fit_e, fit_j, _ = _downsample_display_arrays(
+                        prepared.e[fit_indices],
+                        prepared.j[fit_indices],
+                        limit=display_limit,
+                    )
                     ax0.scatter(
-                        prepared.e[fit_indices], prepared.j[fit_indices],
+                        fit_e, fit_j,
                         s=28, color=color, edgecolors="#111827",
                         linewidths=0.5, alpha=0.95, zorder=4,
+                        rasterized=True,
                     )
 
             if fit is not None:
@@ -191,35 +255,54 @@ def render_comparison(
                 x_show = x_seg[display_mask]
                 y_show = y_seg[display_mask]
                 mask_show = mask[display_mask]
-                ax1.scatter(x_show[~mask_show], y_show[~mask_show], s=14, alpha=0.2, color=color, zorder=2)
+                xs_for_line = x_show[mask_show]
+                x_show, y_show, mask_show_ds = _downsample_display_arrays(
+                    x_show, y_show, mask_show, limit=display_limit,
+                )
+                if mask_show_ds is None:
+                    mask_show_ds = np.zeros_like(x_show, dtype=bool)
+                mask_show = mask_show_ds
+                ax1.scatter(
+                    x_show[~mask_show], y_show[~mask_show],
+                    s=14, alpha=0.2, color=color, zorder=2,
+                    rasterized=True,
+                )
                 ax1.scatter(
                     x_show[mask_show], y_show[mask_show], s=28, color=color,
                     edgecolors="#111827", linewidths=0.5,
                     label=f"{label} ({fit.slope_mv_per_dec:.1f} mV/dec)",
                     zorder=3,
+                    rasterized=True,
                 )
-                xs = x_show[mask_show]
+                xs = xs_for_line
                 if xs.size >= 2:
                     margin = max((float(xs.max()) - float(xs.min())) * 0.08, 0.02)
                     x_line = np.linspace(float(xs.min()) - margin, float(xs.max()) + margin, 100)
                     y_line = fit.slope_v_per_dec * x_line + fit.intercept_v
                     ax1.plot(x_line, y_line, linewidth=2.0, color=color, linestyle="--", alpha=0.9, zorder=4)
             else:
-                x_pts, y_pts = compute_tafel_points(prepared)
+                x_pts, y_pts = _compute_tafel_points_for_display(
+                    prepared, limit=display_limit,
+                )
                 if x_pts.size:
-                    ax1.scatter(x_pts, y_pts, s=14, alpha=0.4, color=color, label=label, zorder=2)
+                    ax1.scatter(
+                        x_pts, y_pts, s=14, alpha=0.4, color=color,
+                        label=label, zorder=2, rasterized=True,
+                    )
 
         ref = visible_items[0].prepared
         ax0.set_xlabel(ref.e_label, fontsize=11)
         ax0.set_ylabel(ref.j_label, fontsize=11)
         ax0.set_title("电化学数据对比", fontsize=12, color=TEXT_PRIMARY, pad=8)
         ax0.grid(True)
-        _ordered_static_legend(ax0, stable_labels, fontsize=8)
+        if show_legend:
+            _ordered_static_legend(ax0, stable_labels, fontsize=8)
         ax1.set_xlabel("log10(|j|)", fontsize=11)
         ax1.set_ylabel(ref.tafel_y_label, fontsize=11)
         ax1.set_title("Tafel 斜率对比", fontsize=12, color=TEXT_PRIMARY, pad=8)
         ax1.grid(True)
-        _ordered_static_legend(ax1, stable_tafel_labels, fontsize=8)
+        if show_legend:
+            _ordered_static_legend(ax1, stable_tafel_labels, fontsize=8)
 
         # Apply user-saved axis label overrides (double-click rename)
         from core.rendering import _apply_override
@@ -230,6 +313,11 @@ def render_comparison(
         _apply_override(overrides, "comp_ax1_xlabel", ax1.set_xlabel)
         _apply_override(overrides, "comp_ax1_ylabel", ax1.set_ylabel)
         _apply_override(overrides, "comp_ax1_title", ax1.set_title)
+
+        for axis in (ax0, ax1):
+            axis.relim(visible_only=True)
+            axis.autoscale(enable=True, tight=False)
+            axis.autoscale_view()
 
     app._app_state["compare_plot_default_view_state"] = capture_plot_view_state(app, app.fig)
     apply_plot_view_state(app, [ax0, ax1], preserve_view_state)

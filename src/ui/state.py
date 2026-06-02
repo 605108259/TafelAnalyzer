@@ -64,6 +64,7 @@ def create_initial_state() -> dict[str, Any]:
         "comparison_highlight_row": -1,
         "comparison_lsv_style": "line_marker",
         "comparison_tafel_fit_window": False,
+        "comparison_show_legend": True,
         "palette_schemes": {
             DEFAULT_SCHEME_NAME: {str(i): color for i, color in enumerate(COMPARISON_COLORS)}
         },

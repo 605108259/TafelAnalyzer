@@ -5,9 +5,9 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
     QListWidgetItem, QLabel, QLineEdit, QComboBox, QSplitter,
-    QFileDialog, QMessageBox, QToolButton,
+    QFileDialog, QMessageBox, QToolButton, QInputDialog, QMenu,
 )
-from PySide6.QtCore import Signal, Qt, QEvent
+from PySide6.QtCore import Signal, Qt, QEvent, QSize
 
 from ui.theme import (
     PANEL_STYLE, SMALL_BUTTON_STYLE, DANGER_BUTTON_STYLE,
@@ -18,6 +18,9 @@ from ui.theme import (
 from ui.icons import line_icon
 from ui.color_utils import swatch_button_style
 from core.types import COMPARISON_COLORS as _DEFAULT_COLORS
+
+
+COMPACT_FILE_ROW_THRESHOLD = 100
 
 
 class FileListItem(QWidget):
@@ -51,23 +54,33 @@ class FileListItem(QWidget):
         self.badge = QLabel("✓")
         self.badge.setStyleSheet(f"color: {SUCCESS}; font-weight: bold; font-size: 12px;")
         self.badge.setVisible(is_processed)
+        self.badge.installEventFilter(self)
         layout.addWidget(self.badge)
 
-        btn = QPushButton("×")
-        btn.setFixedSize(22, 22)
-        btn.setStyleSheet(
+        self.remove_btn = QPushButton("×")
+        self.remove_btn.setFixedSize(22, 22)
+        self.remove_btn.setStyleSheet(
             f"QPushButton {{ border: none; border-radius: 11px; color: #dc2626; font-size: 14px; font-weight: bold; }}"
             f"QPushButton:hover {{ background: #fee2e2; }}"
         )
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn.clicked.connect(lambda: self.remove_clicked.emit(self.file_path))
-        layout.addWidget(btn)
+        self.remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.remove_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.remove_btn.installEventFilter(self)
+        self.remove_btn.clicked.connect(lambda: self.remove_clicked.emit(self.file_path))
+        layout.addWidget(self.remove_btn)
 
     def sizeHint(self):
         base = super().sizeHint()
         base.setHeight(max(base.height(), 28))
         return base
+
+    def eventFilter(self, obj, event):
+        if obj in (
+            getattr(self, "badge", None),
+            getattr(self, "remove_btn", None),
+        ) and event.type() == QEvent.Type.ToolTip:
+            return True
+        return super().eventFilter(obj, event)
 
     def begin_rename(self) -> None:
         self.name_edit.setReadOnly(False)
@@ -109,12 +122,13 @@ class SegmentItemWidget(QWidget):
         self.setObjectName("SegmentItem")
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFixedHeight(28)
         self.segment_index = index
         self._active = is_active
         self._hover = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
-        layout.setSpacing(0)
+        layout.setSpacing(6)
         layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         # Checkbox
@@ -125,13 +139,16 @@ class SegmentItemWidget(QWidget):
         # Label
         name = QLabel(label)
         name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        name.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px; background: transparent;")
+        name.setStyleSheet(
+            f"color: {TEXT_PRIMARY}; font-size: 12px; "
+            "background: transparent; padding-left: 2px;"
+        )
         layout.addWidget(name, stretch=1)
 
         # Color swatch
         self.color_btn = QPushButton()
         self.color_btn.setFixedSize(16, 16)
-        self.color_btn.setStyleSheet(swatch_button_style(color, radius=4))
+        self.color_btn.setStyleSheet(swatch_button_style(color, radius=4, border_width=1))
         self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.color_btn.clicked.connect(lambda: self.color_clicked.emit(index))
         layout.addWidget(self.color_btn)
@@ -139,6 +156,11 @@ class SegmentItemWidget(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(SEGMENT_ITEM_STYLE)
         self._apply_bg()
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        hint.setHeight(28)
+        return hint
 
     def event(self, event):
         if event.type() == QEvent.Type.HoverEnter:
@@ -160,7 +182,7 @@ class SegmentItemWidget(QWidget):
         self.cb.setChecked(is_checked)
         self.cb.blockSignals(False)
         self.color_btn.setStyleSheet(
-            swatch_button_style(color, radius=4)
+            swatch_button_style(color, radius=4, border_width=1)
         )
         self._apply_bg()
 
@@ -225,7 +247,6 @@ class FileSegmentPanel(QWidget):
 
         for name, tip, cb in [
             ("folder", "选择数据文件", self._on_select_files),
-            ("download", "导入缓存", self.cache_import_requested.emit),
             ("save", "导出当前结果", self.export_current.emit),
             ("package", "批量导出", self.export_batch.emit),
         ]:
@@ -249,6 +270,9 @@ class FileSegmentPanel(QWidget):
         self.file_list = QListWidget()
         self.file_list.setStyleSheet(LIST_STYLE)
         self.file_list.setUniformItemSizes(True)
+        self.file_list.installEventFilter(self)
+        self.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.file_list.customContextMenuRequested.connect(self._on_file_context_menu)
         self.file_list.itemClicked.connect(self._on_file_single_click)
         self.file_list.itemDoubleClicked.connect(self._on_file_double_click)
         splitter.addWidget(self.file_list)
@@ -338,12 +362,89 @@ class FileSegmentPanel(QWidget):
         self._processed: set[str] = set()
         self._file_names: dict[str, str] = {}
         self._active_file_path: Path | None = None
+        self._compact_file_rows = False
         self._segments: list[dict] = []
         self._active_index: int = 0
         self._checked_indices: set[int] = set()
         self._segment_colors: dict[int, str] = {}
 
     # ━━ File operations ━━
+
+    def set_heavy_list_updates_enabled(self, enabled: bool) -> None:
+        """Freeze expensive list repaints while the file panel is hidden."""
+        for view in (self.file_list, self.segment_list):
+            view.setUpdatesEnabled(enabled)
+            viewport = view.viewport()
+            if viewport is not None:
+                viewport.setUpdatesEnabled(enabled)
+                if enabled:
+                    viewport.update()
+            if enabled:
+                view.update()
+
+    def eventFilter(self, obj, event):
+        if obj is self.file_list and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key == Qt.Key.Key_Delete:
+                self._on_remove_current()
+                return True
+            if key == Qt.Key.Key_F2:
+                current = self._path_from_file_item(self.file_list.currentItem())
+                if current is not None:
+                    self._rename_file_path(current)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _should_use_compact_file_rows(self) -> bool:
+        return len(self._file_paths) > COMPACT_FILE_ROW_THRESHOLD
+
+    def _path_from_file_item(self, item: QListWidgetItem | None) -> Path | None:
+        if item is None:
+            return None
+        data = item.data(Qt.ItemDataRole.UserRole)
+        return Path(str(data)) if data else None
+
+    def _update_compact_file_item(self, item: QListWidgetItem, path: Path) -> None:
+        display_name = self._file_names.get(str(path), path.stem)
+        processed = str(path) in self._processed
+        prefix = "✓ " if processed else "  "
+        item.setText(f"{prefix}{display_name}")
+        item.setToolTip(str(path))
+        item.setData(Qt.ItemDataRole.UserRole, str(path))
+
+    def _rename_file_path(self, path: Path) -> None:
+        current_name = self._file_names.get(str(path), path.stem)
+        new_name, ok = QInputDialog.getText(
+            self,
+            "重命名文件",
+            "显示名称:",
+            text=current_name,
+        )
+        if ok and new_name.strip():
+            self._on_file_renamed(path, new_name.strip())
+
+    def _on_file_context_menu(self, pos) -> None:
+        item = self.file_list.itemAt(pos)
+        path = self._path_from_file_item(item)
+        if path is None and item is not None:
+            widget = self.file_list.itemWidget(item)
+            if isinstance(widget, FileListItem):
+                path = widget.file_path
+        if path is None:
+            return
+        menu = QMenu(self)
+        rename_action = menu.addAction("重命名")
+        remove_action = menu.addAction("移除")
+        chosen = menu.exec(self.file_list.mapToGlobal(pos))
+        if chosen == rename_action:
+            if item is not None and not self._compact_file_rows:
+                widget = self.file_list.itemWidget(item)
+                if isinstance(widget, FileListItem):
+                    widget.begin_rename()
+                    return
+            self._rename_file_path(path)
+        elif chosen == remove_action:
+            self._on_file_remove(path)
 
     def _on_select_files(self):
         paths_str, _ = QFileDialog.getOpenFileNames(
@@ -365,6 +466,10 @@ class FileSegmentPanel(QWidget):
         widget = self.file_list.itemWidget(item)
         if isinstance(widget, FileListItem):
             widget.begin_rename()
+            return
+        path = self._path_from_file_item(item)
+        if path is not None:
+            self._rename_file_path(path)
 
     def _on_file_single_click(self, item: QListWidgetItem):
         widget = self.file_list.itemWidget(item)
@@ -372,6 +477,12 @@ class FileSegmentPanel(QWidget):
             self._active_file_path = widget.file_path
             self._update_file_highlight()
             self.file_activated.emit(widget.file_path)
+            return
+        path = self._path_from_file_item(item)
+        if path is not None:
+            self._active_file_path = path
+            self._update_file_highlight()
+            self.file_activated.emit(path)
 
     def _on_remove_current(self):
         if not self._file_paths:
@@ -390,6 +501,7 @@ class FileSegmentPanel(QWidget):
 
     def _rebuild_file_list(self):
         scroll_value = self.file_list.verticalScrollBar().value()
+        self._compact_file_rows = self._should_use_compact_file_rows()
         self._clear_file_widgets()
         self.file_list.clear()
         for path in self._file_paths:
@@ -410,6 +522,9 @@ class FileSegmentPanel(QWidget):
             widget.deleteLater()
 
     def _append_file_row(self, path: Path) -> None:
+        if self._compact_file_rows:
+            self._append_compact_file_row(path)
+            return
         item = QListWidgetItem()
         display_name = self._file_names.get(str(path), path.stem)
         widget = FileListItem(path, display_name, str(path) in self._processed)
@@ -418,6 +533,13 @@ class FileSegmentPanel(QWidget):
         item.setSizeHint(widget.sizeHint())
         self.file_list.addItem(item)
         self.file_list.setItemWidget(item, widget)
+
+    def _append_compact_file_row(self, path: Path) -> None:
+        item = QListWidgetItem()
+        item.setData(Qt.ItemDataRole.UserRole, str(path))
+        item.setSizeHint(QSize(0, 28))
+        self.file_list.addItem(item)
+        self._update_compact_file_item(item, path)
 
     def remove_file_path(self, path: Path) -> None:
         """Remove a single file path from the list without full rebuild."""
@@ -455,6 +577,9 @@ class FileSegmentPanel(QWidget):
         if row < 0 or row >= self.file_list.count():
             return
         item = self.file_list.item(row)
+        if self._compact_file_rows:
+            self._update_compact_file_item(item, path)
+            return
         widget = self.file_list.itemWidget(item)
         if not isinstance(widget, FileListItem) or widget.file_path != path:
             self._rebuild_file_list()
@@ -495,12 +620,16 @@ class FileSegmentPanel(QWidget):
 
     def set_file_paths(self, paths: list[Path], processed: set[str], *, names: dict[str, str] | None = None) -> None:
         old_paths = list(self._file_paths)
+        old_compact = self._compact_file_rows
         self._file_paths = list(paths)
         self._processed = set(processed)
         if names is not None:
             self._file_names = dict(names)
         for p in self._file_paths:
             self._file_names.setdefault(str(p), p.stem)
+        if old_compact != self._should_use_compact_file_rows():
+            self._rebuild_file_list()
+            return
         if old_paths != self._file_paths:
             if not self._sync_file_rows_incremental(old_paths, self._file_paths):
                 self._rebuild_file_list()
@@ -529,6 +658,9 @@ class FileSegmentPanel(QWidget):
     def _update_file_highlight(self) -> None:
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
+            if self._compact_file_rows:
+                item.setSelected(self._path_from_file_item(item) == self._active_file_path)
+                continue
             widget = self.file_list.itemWidget(item)
             if not isinstance(widget, FileListItem):
                 continue

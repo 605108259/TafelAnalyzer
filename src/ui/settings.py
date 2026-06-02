@@ -314,6 +314,9 @@ def load_app_settings(app: TafelAnalyzerApp) -> None:
     app._app_state["comparison_tafel_fit_window"] = bool(
         payload.get("comparison_tafel_fit_window", False)
     )
+    app._app_state["comparison_show_legend"] = bool(
+        payload.get("comparison_show_legend", True)
+    )
     app._app_state["saved_parameter_defaults"] = normalize_parameter_settings(
         payload.get("saved_parameter_defaults")
     )
@@ -350,6 +353,9 @@ def save_app_settings(app: TafelAnalyzerApp) -> None:
         ),
         "comparison_tafel_fit_window": bool(
             app._app_state.get("comparison_tafel_fit_window", False)
+        ),
+        "comparison_show_legend": bool(
+            app._app_state.get("comparison_show_legend", True)
         ),
         "saved_parameter_defaults": normalize_parameter_settings(
             app._app_state.get("saved_parameter_defaults")

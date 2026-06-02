@@ -139,3 +139,58 @@ def test_comparison_legend_order_is_stable_when_highlight_changes() -> None:
 
     assert first_labels == ["A", "B"]
     assert second_labels == ["A", "B"]
+
+
+def test_comparison_legend_can_be_hidden_explicitly() -> None:
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from core.comparison import render_comparison
+    from core.types import ComparisonItem, PreparedSeries, SegmentInfo
+
+    seg = SegmentInfo(index=0, start=0, end=2)
+    prepared = PreparedSeries(
+        raw_e=np.array([0.0, 1.0]),
+        raw_j=np.array([1.0, 2.0]),
+        e=np.array([0.0, 1.0]),
+        j=np.array([1.0, 2.0]),
+        eta=np.array([0.0, 1.0]),
+        e_label="E",
+        j_label="j",
+        tafel_y_label="eta",
+        potential_channel="E",
+        current_channel="j",
+        potential_formula="[E]",
+        current_formula="[j]",
+        e_eq=0.0,
+        segment=seg,
+    )
+    fig = Figure()
+    canvas = FigureCanvasAgg(fig)
+    app = SimpleNamespace(
+        fig=fig,
+        canvas=canvas,
+        _app_state={
+            "comparison_items": [
+                ComparisonItem(
+                    item_id="a",
+                    file_path=Path("a.cor"),
+                    file_name="a",
+                    segment_index=0,
+                    prepared=prepared,
+                    fit=None,
+                    label="A",
+                    color="#2563eb",
+                )
+            ],
+            "comparison_highlight_row": -1,
+            "comparison_lsv_style": "line_marker",
+            "comparison_tafel_fit_window": False,
+            "comparison_show_legend": False,
+            "active_chart_mode": "comparison",
+        },
+    )
+
+    render_comparison(app)
+
+    assert fig.axes[0].get_legend() is None
+    assert fig.axes[1].get_legend() is None

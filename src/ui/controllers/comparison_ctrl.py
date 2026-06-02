@@ -132,6 +132,14 @@ class ComparisonController(BaseAppController):
         self._rerender()
         self._save_settings()
 
+    def set_legend_visible(self, visible: bool) -> None:
+        value = bool(visible)
+        if bool(self.app._app_state.get("comparison_show_legend", True)) == value:
+            return
+        self.app._app_state["comparison_show_legend"] = value
+        self._rerender()
+        self._save_settings()
+
     def rename(self, item_id: str, new_name: str) -> None:
         item = self.app.state.comparison.item_by_id(item_id)
         display_name = self.app.state.comparison.rename(item_id, new_name)

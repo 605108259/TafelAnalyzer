@@ -1,9 +1,9 @@
 {
-  "version": "1.0.8",
-  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.8-setup.exe",
-  "filename": "TAFSQ-1.0.8-setup.exe",
-  "sha256": "4fbe76758704da0d125b80294ca2c3ce63fde039c3e2401ec5a7b11404b817bf",
-  "size": 83228676,
+  "version": "1.0.9",
+  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.9-setup.exe",
+  "filename": "TAFSQ-1.0.9-setup.exe",
+  "sha256": "27bdb96203ac0b96570904deca7a5b68867a9751e31c6badd34b205fad189d43",
+  "size": 92876759,
   "mandatory": false,
-  "notes": "Fitting加速:预计算+稀疏搜索+并行; 图表增量渲染+降采样; Fusion风格修复Win11 tooltip; 轴标题双击重命名; 移除文件不刷面板"
+  "notes": "Fix updater install launch flow; add update log; keep comparison rendering and side-panel UI performance updates."
 }

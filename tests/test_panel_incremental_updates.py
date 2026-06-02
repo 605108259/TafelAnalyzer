@@ -76,6 +76,26 @@ class PanelIncrementalUpdateTests(unittest.TestCase):
         self.assertEqual(panel.file_list.count(), 3)
         self.assertIs(panel.file_list.itemWidget(panel.file_list.item(1)), survivor)
 
+    def test_large_file_list_uses_compact_rows_without_row_widgets(self) -> None:
+        _qapp()
+        from ui.panels.file_segment import COMPACT_FILE_ROW_THRESHOLD, FileSegmentPanel
+
+        panel = FileSegmentPanel()
+        paths = [
+            Path(f"D:/data/file_{index}.cor")
+            for index in range(COMPACT_FILE_ROW_THRESHOLD + 1)
+        ]
+        activated = []
+        panel.file_activated.connect(activated.append)
+
+        panel.set_file_paths(paths, {str(paths[2])})
+        panel._on_file_single_click(panel.file_list.item(2))
+
+        self.assertEqual(panel.file_list.count(), len(paths))
+        self.assertIsNone(panel.file_list.itemWidget(panel.file_list.item(2)))
+        self.assertIn(paths[2].stem, panel.file_list.item(2).text())
+        self.assertEqual(activated, [paths[2]])
+
     def test_comparison_set_items_reuses_rows_when_ids_are_unchanged(self) -> None:
         _qapp()
         from ui.panels.comparison import ComparisonPanel

@@ -48,6 +48,13 @@ def test_lsv_style_options_normalize_and_map_to_plot_kwargs():
     assert mixed["linestyle"] == "-"
 
 
+def test_comparison_display_point_limit_shrinks_for_many_items():
+    from core.comparison import _comparison_point_limit
+
+    assert _comparison_point_limit(1) >= _comparison_point_limit(20)
+    assert _comparison_point_limit(20) == 250
+
+
 def test_tafel_window_mask_keeps_fit_region_plus_twenty_percent_of_fit_points_each_side():
     selected = np.zeros(100, dtype=bool)
     selected[40:51] = True

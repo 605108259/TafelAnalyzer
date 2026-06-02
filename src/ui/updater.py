@@ -177,7 +177,7 @@ def _download_and_install(app, info: UpdateInfo) -> None:
 
 def _install_and_restart(app, installer_path: Path) -> None:
     current_exe = Path(sys.executable).resolve()
-    script = _write_update_script(installer_path.resolve(), current_exe)
+    script = _write_update_script(installer_path.resolve(), current_exe, os.getpid())
     started = QProcess.startDetached("cmd.exe", ["/c", str(script)])
     if not started:
         QMessageBox.critical(app, "更新失败", "无法启动安装程序。")
@@ -206,20 +206,34 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _write_update_script(installer_path: Path, current_exe: Path) -> Path:
+def _write_update_script(installer_path: Path, current_exe: Path, current_pid: int) -> Path:
     script_path = Path(tempfile.gettempdir()) / "TAFSQ-update" / "run-update.cmd"
     script_path.parent.mkdir(parents=True, exist_ok=True)
-    installer = _batch_quote(installer_path)
-    exe = _batch_quote(current_exe)
+    installer = _batch_var_value(installer_path)
+    exe = _batch_var_value(current_exe)
     script_path.write_text(
         "\n".join([
             "@echo off",
             "setlocal",
-            "timeout /t 2 /nobreak >nul",
-            f"{installer} /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS",
+            "set \"LOG=%TEMP%\\TAFSQ-update\\run-update.log\"",
+            f"set \"INSTALLER={installer}\"",
+            f"set \"CURRENT_EXE={exe}\"",
+            f"set \"CURRENT_PID={int(current_pid)}\"",
+            "echo [%DATE% %TIME%] updater started > \"%LOG%\"",
+            "echo installer=%INSTALLER% >> \"%LOG%\"",
+            "echo current_exe=%CURRENT_EXE% >> \"%LOG%\"",
+            "echo current_pid=%CURRENT_PID% >> \"%LOG%\"",
+            ":wait_app_exit",
+            "tasklist /FI \"PID eq %CURRENT_PID%\" 2>nul | findstr /C:\"%CURRENT_PID%\" >nul",
             "if %ERRORLEVEL% EQU 0 (",
-            f"  start \"\" {exe}",
+            "  timeout /t 1 /nobreak >nul",
+            "  goto wait_app_exit",
             ")",
+            "echo [%DATE% %TIME%] app exited; launching installer >> \"%LOG%\"",
+            "start \"\" /wait \"%INSTALLER%\" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS",
+            "set \"INSTALL_EXIT=%ERRORLEVEL%\"",
+            "echo [%DATE% %TIME%] installer exit code=%INSTALL_EXIT% >> \"%LOG%\"",
+            "if \"%INSTALL_EXIT%\"==\"0\" start \"\" \"%CURRENT_EXE%\"",
             "del \"%~f0\"",
             "",
         ]),
@@ -228,5 +242,5 @@ def _write_update_script(installer_path: Path, current_exe: Path) -> Path:
     return script_path
 
 
-def _batch_quote(path: Path) -> str:
-    return '"' + str(path).replace('"', '""') + '"'
+def _batch_var_value(path: Path) -> str:
+    return str(path).replace('"', '""')

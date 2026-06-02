@@ -4,7 +4,7 @@
 ; 软件名称：安装向导标题、开始菜单名称、桌面快捷方式名称都会用到
 #define MyAppName "TAFSQ"
 ; 软件版本号：会显示在安装包和“应用和功能”里
-#define MyAppVersion "1.0.8"
+#define MyAppVersion "1.0.9"
 ; 发布者名称：会显示在安装信息里
 #define MyAppPublisher "JXSQ"
 ; 主程序 EXE 文件名：必须和 dist\TafelAnalyzer 里的实际文件一致
@@ -36,7 +36,7 @@ PrivilegesRequired=admin
 ; 安装包输出目录
 OutputDir=installer_output
 ; 安装包输出文件名（不含 .exe 后缀）
-OutputBaseFilename=TAFSQ-1.0.8-setup
+OutputBaseFilename=TAFSQ-1.0.9-setup
 ; 安装包自身显示的图标
 SetupIconFile={#MyAppIconFile}
 ; 压缩方式，通常不用改

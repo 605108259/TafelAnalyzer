@@ -28,7 +28,16 @@ class ViewCoordinator:
             app.side_stack.hide()
             return
         app.side_stack.show()
+        previous_panel = app.side_stack.currentIndex()
+        if (
+            previous_panel == PANEL_FILES
+            and panel_id != PANEL_FILES
+            and hasattr(app, "file_segment_panel")
+        ):
+            app.file_segment_panel.set_heavy_list_updates_enabled(False)
         app.side_stack.setCurrentIndex(panel_id)
+        if panel_id == PANEL_FILES and hasattr(app, "file_segment_panel"):
+            app.file_segment_panel.set_heavy_list_updates_enabled(True)
 
         if panel_id == PANEL_FILES:
             self.show_single()
@@ -55,7 +64,7 @@ class ViewCoordinator:
         app.summary_table.hide()
         if previous_mode == "single":
             return
-        self._queue_chart_render("single")
+        self._queue_chart_render("single", delay_ms=35)
 
     def show_comparison(self) -> None:
         app = self.app
@@ -71,9 +80,9 @@ class ViewCoordinator:
         app.summary_table.hide()
         if previous_mode == "comparison":
             return
-        self._queue_chart_render("comparison")
+        self._queue_chart_render("comparison", delay_ms=35)
 
-    def _queue_chart_render(self, mode: str) -> None:
+    def _queue_chart_render(self, mode: str, *, delay_ms: int = 0) -> None:
         self._render_token += 1
         token = self._render_token
 
@@ -89,7 +98,7 @@ class ViewCoordinator:
                 return
             self.render_comparison()
 
-        QTimer.singleShot(0, render_if_current)
+        QTimer.singleShot(delay_ms, render_if_current)
 
     def show_palette(self) -> None:
         app = self.app

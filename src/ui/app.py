@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QStackedLayout, QLabel, QToolButton, QComboBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QLabel, QToolButton, QComboBox
 from PySide6.QtCore import Qt
 
 from core.version import APP_VERSION
@@ -70,6 +70,15 @@ class TafelAnalyzerApp(QMainWindow):
         app = QApplication.instance()
         if not isinstance(app, QApplication):
             return
+        from PySide6.QtGui import QPalette, QColor
+        from PySide6.QtWidgets import QToolTip
+
+        palette = QPalette()
+        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(BG_CARD))
+        palette.setColor(QPalette.ColorRole.ToolTipText, QColor(TEXT_PRIMARY))
+        palette.setColor(QPalette.ColorRole.Window, QColor(BG_CARD))
+        palette.setColor(QPalette.ColorRole.Base, QColor(BG_CARD))
+        QToolTip.setPalette(palette)
         app.setStyleSheet(f"""
             QToolTip {{
                 background-color: {BG_CARD};
@@ -175,7 +184,6 @@ class TafelAnalyzerApp(QMainWindow):
         self.side_stack = QStackedWidget()
         self.side_stack.setFixedWidth(320)
         self.side_stack.installEventFilter(self)
-        self.side_stack.layout().setStackingMode(QStackedLayout.StackingMode.StackAll)
 
         from ui.panels.file_segment import FileSegmentPanel
         from ui.panels.comparison import ComparisonPanel
@@ -348,6 +356,10 @@ class TafelAnalyzerApp(QMainWindow):
             1 if self._app_state.get("comparison_tafel_fit_window", False) else 0
         )
         self._comp_tafel_window_combo.blockSignals(False)
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.set_legend_visible(
+                bool(self._app_state.get("comparison_show_legend", True))
+            )
 
     def _on_comp_nav_tool(self, name: str) -> None:
         if self._comp_active_tool == name:
@@ -509,6 +521,7 @@ class TafelAnalyzerApp(QMainWindow):
         cp.item_clicked.connect(self.comparison.highlight_item)
         cp.move_up_clicked.connect(self.comparison.move_up)
         cp.move_down_clicked.connect(self.comparison.move_down)
+        cp.legend_toggled.connect(self.comparison.set_legend_visible)
         cp.palette_scheme_changed.connect(self.files.on_palette_scheme_changed)
         cp.palette_apply_clicked.connect(self.files.on_palette_apply_comparison)
         cp.palette_manage_clicked.connect(lambda: self._on_panel_clicked(PANEL_PALETTE))

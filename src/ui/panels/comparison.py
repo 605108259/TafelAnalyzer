@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor
 from ui.theme import (
     BUTTON_STYLE, PANEL_STYLE, TEXT_PRIMARY, TEXT_SECONDARY,
     ACCENT, ACCENT_BUTTON_STYLE, DANGER, SMALL_BUTTON_STYLE, INPUT_STYLE,
-    BG_HOVER, BG_CARD, CheckmarkBox, ICON_BUTTON_STYLE, COMBO_BOX_STYLE,
+    BG_HOVER, BG_CARD, BG_SELECTED, CheckmarkBox, ICON_BUTTON_STYLE, COMBO_BOX_STYLE,
 )
 from ui.color_utils import swatch_button_style
 from ui.icons import line_icon
@@ -51,12 +51,14 @@ class ComparisonItemWidget(QWidget):
                  file_name: str = "", segment_index: int = -1):
         super().__init__()
         self.setObjectName("ComparisonItem")
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.item_id = item_id
         self._color = color
         self._original_name = display_name
         self._segment_label = ""
         self._highlighted = False
+        self._hover = False
         self._editing = False
 
         if file_name:
@@ -67,8 +69,8 @@ class ComparisonItemWidget(QWidget):
             self.setToolTipDuration(10000)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setSpacing(6)
         layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.cb = CheckmarkBox(visible)
@@ -80,12 +82,14 @@ class ComparisonItemWidget(QWidget):
         self.name_edit = RenameLineEdit(display_name)
         self.name_edit.setStyleSheet(
             f"QLineEdit {{ border: 1px solid transparent; border-radius: 4px; "
-            f"background: transparent; padding: 2px 4px; "
+            f"background: transparent; padding: 1px 2px; "
             f"color: {TEXT_PRIMARY}; font-size: 12px; }}"
             f"QLineEdit:focus {{ border: 1px solid {ACCENT}; "
             f"background: white; }}"
         )
         self.name_edit.setReadOnly(True)
+        self.name_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.name_edit.commit_requested.connect(self._commit_rename)
         self.name_edit.cancel_requested.connect(self._cancel_rename)
         layout.addWidget(self.name_edit, stretch=1)
@@ -96,27 +100,27 @@ class ComparisonItemWidget(QWidget):
         layout.addWidget(self.segment_lbl)
 
         self.color_btn = QPushButton()
-        self.color_btn.setFixedSize(20, 20)
-        self.color_btn.setStyleSheet(swatch_button_style(color, radius=10, border_width=2))
-        self.color_btn.setToolTip("更改颜色")
-        self.color_btn.setStatusTip("更改颜色")
-        self.color_btn.setToolTipDuration(5000)
+        self.color_btn.setFixedSize(16, 16)
+        self.color_btn.setStyleSheet(swatch_button_style(color, radius=4, border_width=1))
         self.color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.color_btn.clicked.connect(lambda: self.color_clicked.emit(self.item_id))
         layout.addWidget(self.color_btn)
 
-        self.rm_btn = QToolButton()
-        self.rm_btn.setIcon(line_icon("x", color=TEXT_SECONDARY, size=14))
-        self.rm_btn.setToolTip("移除")
-        self.rm_btn.setStatusTip("移除")
-        self.rm_btn.setToolTipDuration(5000)
+        self.rm_btn = QPushButton("×")
+        self.rm_btn.setFixedSize(22, 22)
         self.rm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.rm_btn.setStyleSheet(ICON_BUTTON_STYLE)
+        self.rm_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.rm_btn.setStyleSheet(
+            "QPushButton { border: none; border-radius: 11px; "
+            "color: #dc2626; font-size: 14px; font-weight: bold; }"
+            "QPushButton:hover { background: #fee2e2; }"
+        )
         self.rm_btn.clicked.connect(lambda: self.remove_clicked.emit(self.item_id))
         layout.addWidget(self.rm_btn)
 
         for w in (self.cb, self.name_edit, self.color_btn, self.rm_btn):
             w.installEventFilter(self)
+        self._apply_bg()
 
     def event(self, event):
         """Intercept ToolTip to force white bg via palette."""
@@ -133,6 +137,12 @@ class ComparisonItemWidget(QWidget):
             QToolTip.showText(event.globalPos(), self.toolTip(), self)
             QToolTip.setPalette(old)
             return True
+        if event.type() == QEvent.Type.HoverEnter:
+            self._hover = True
+            self._apply_bg()
+        elif event.type() == QEvent.Type.HoverLeave:
+            self._hover = False
+            self._apply_bg()
         return super().event(event)
 
     def sizeHint(self):
@@ -143,6 +153,8 @@ class ComparisonItemWidget(QWidget):
     def begin_rename(self) -> None:
         self._editing = True
         self.name_edit.setReadOnly(False)
+        self.name_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.name_edit.setFocus(Qt.FocusReason.MouseFocusReason)
         self.name_edit.selectAll()
 
@@ -154,9 +166,13 @@ class ComparisonItemWidget(QWidget):
             self.name_edit.setText(self._original_name)
             self._editing = False
             self.name_edit.setReadOnly(True)
+            self.name_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             return
         self._editing = False
         self.name_edit.setReadOnly(True)
+        self.name_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         if new_name != self._original_name:
             self.set_display_name(new_name, self._segment_label)
             self.rename_finished.emit(self.item_id, new_name)
@@ -165,6 +181,8 @@ class ComparisonItemWidget(QWidget):
         self._editing = False
         self.name_edit.setText(self._original_name)
         self.name_edit.setReadOnly(True)
+        self.name_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.name_edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def set_display_name(self, display_name: str, segment_label: str = "") -> None:
         self._original_name = display_name
@@ -178,7 +196,7 @@ class ComparisonItemWidget(QWidget):
         display_name = data.get("edit_name") or data["display_name"]
         self.set_display_name(display_name, data.get("segment_label", ""))
         self._color = data["color"]
-        self.color_btn.setStyleSheet(swatch_button_style(self._color, radius=10, border_width=2))
+        self.color_btn.setStyleSheet(swatch_button_style(self._color, radius=4, border_width=1))
         self.cb.blockSignals(True)
         self.cb.setChecked(bool(data["visible"]))
         self.cb.blockSignals(False)
@@ -193,17 +211,20 @@ class ComparisonItemWidget(QWidget):
 
     def set_highlighted(self, on: bool):
         self._highlighted = on
-        if on:
-            self.setStyleSheet(
-                f"QWidget#ComparisonItem {{ background: rgba(37, 99, 235, 20); "
-                f"border-left: 3px solid #2563eb; border-radius: 4px; }}"
-            )
+        self._apply_bg()
+
+    def _apply_bg(self) -> None:
+        if self._highlighted:
+            bg = BG_SELECTED
+        elif self._hover:
+            bg = BG_HOVER
         else:
-            self.setStyleSheet(
-                "QWidget#ComparisonItem { background: transparent; border: none; }"
-            )
+            bg = "transparent"
+        self.setStyleSheet(f"QWidget#ComparisonItem {{ background: {bg}; border-radius: 6px; }}")
 
     def eventFilter(self, obj, event):
+        if obj in (self.color_btn, self.rm_btn) and event.type() == QEvent.Type.ToolTip:
+            return True
         if obj is self.name_edit and event.type() == QEvent.Type.MouseButtonDblClick:
             self.begin_rename()
             return True
@@ -305,6 +326,7 @@ class ComparisonPanel(QWidget):
     clear_all_clicked = Signal()
     move_up_clicked = Signal()
     move_down_clicked = Signal()
+    legend_toggled = Signal(bool)
 
     # Palette signals
     palette_scheme_changed = Signal(str)
@@ -342,6 +364,18 @@ class ComparisonPanel(QWidget):
             btn.setStyleSheet(SMALL_BUTTON_STYLE)
             btn.clicked.connect(sig.emit)
             header.addWidget(btn)
+
+        self.legend_btn = QPushButton("图例")
+        self.legend_btn.setCheckable(True)
+        self.legend_btn.setChecked(True)
+        self.legend_btn.setToolTip("显示/隐藏图例")
+        self.legend_btn.setStatusTip("显示/隐藏图例")
+        self.legend_btn.setAccessibleName("显示/隐藏图例")
+        self.legend_btn.setToolTipDuration(5000)
+        self.legend_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.legend_btn.setStyleSheet(SMALL_BUTTON_STYLE)
+        self.legend_btn.toggled.connect(self.legend_toggled.emit)
+        header.addWidget(self.legend_btn)
 
         for name, tip, sig in [
             ("arrow-up", "上移", self.move_up_clicked),
@@ -440,6 +474,11 @@ class ComparisonPanel(QWidget):
         self.item_list.verticalScrollBar().setValue(scroll_value)
         highlight_row = highlighted_row if highlighted_row is not None else self._highlighted_row
         self.set_highlighted(highlight_row)
+
+    def set_legend_visible(self, visible: bool) -> None:
+        self.legend_btn.blockSignals(True)
+        self.legend_btn.setChecked(bool(visible))
+        self.legend_btn.blockSignals(False)
 
     def _append_items(self, items: list[dict]) -> None:
         for data in items:
