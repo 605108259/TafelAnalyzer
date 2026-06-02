@@ -6,10 +6,13 @@ import json
 from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from core.types import ComparisonItem
 from core.serialization import fit_to_dict, prepared_to_dict
+
+if TYPE_CHECKING:
+    from ui.app import TafelAnalyzerApp
 
 
 FILE_FINGERPRINT_VERSION = "file-sha256-v1"
@@ -131,7 +134,7 @@ def cache_key_from_json(cache_key: list) -> tuple:
     return tuple(restored)
 
 
-def build_cache_payload(app: Any) -> dict:
+def build_cache_payload(app: TafelAnalyzerApp) -> dict:
     from core.rendering import persist_current_plot_view_state
 
     persist_current_plot_view_state(app)
@@ -207,7 +210,7 @@ def _blob_key(cache_key: tuple, segment_index: int) -> str:
     return f"{digest}_s{segment_index}"
 
 
-def build_v3_manifest(app: Any) -> dict:
+def build_v3_manifest(app: TafelAnalyzerApp) -> dict:
     """Project metadata, file list, chart view state."""
     from core.rendering import persist_current_plot_view_state
     persist_current_plot_view_state(app)
@@ -230,12 +233,12 @@ def build_v3_manifest(app: Any) -> dict:
     }
 
 
-def build_v3_file_ui(app: Any) -> dict:
+def build_v3_file_ui(app: TafelAnalyzerApp) -> dict:
     """Per-file UI settings (formulas, params, colors, segment selections)."""
     return deepcopy(app._app_state["file_ui_cache"])
 
 
-def build_v3_result_index(app: Any) -> dict:
+def build_v3_result_index(app: TafelAnalyzerApp) -> dict:
     """Result cache index with references to prepared/fit blobs."""
     index: dict = {}
     for cache_key, cached in app._app_state["result_cache"].items():
@@ -264,7 +267,7 @@ def build_v3_result_index(app: Any) -> dict:
     return index
 
 
-def build_v3_comparison(app: Any) -> list[dict]:
+def build_v3_comparison(app: TafelAnalyzerApp) -> list[dict]:
     """Comparison items with references to prepared/fit blobs."""
     items: list[dict] = []
     for item in app._app_state.get("comparison_items", []):
@@ -293,7 +296,7 @@ def _entry_has_segment(cached: dict, segment_index: int) -> bool:
     )
 
 
-def _result_key_for_file_segment(app: Any, file_path: Path, segment_index: int) -> tuple | None:
+def _result_key_for_file_segment(app: TafelAnalyzerApp, file_path: Path, segment_index: int) -> tuple | None:
     """Find the path-independent result cache key that covers file + segment."""
     result_cache = app._app_state.get("result_cache", {})
     mapped = app._app_state.get("current_result_keys", {}).get(str(file_path))
@@ -316,7 +319,7 @@ def _result_key_for_file_segment(app: Any, file_path: Path, segment_index: int) 
     return None
 
 
-def build_v3_blobs(app: Any) -> tuple[dict[str, dict], dict[str, dict]]:
+def build_v3_blobs(app: TafelAnalyzerApp) -> tuple[dict[str, dict], dict[str, dict]]:
     """Returns (prepared_blobs, fit_blobs) keyed by blob key."""
     prepared_blobs: dict[str, dict] = {}
     fit_blobs: dict[str, dict] = {}

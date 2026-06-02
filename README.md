@@ -22,12 +22,6 @@ TAFSQ 是一个用于电化学 Tafel 曲线分析的 Windows 桌面软件。软�
 python main.py
 ```
 
-Electron/Web UI:
-```powershell
-npm install
-npm run web
-```
-
 运行 CLI：
 
 ```powershell

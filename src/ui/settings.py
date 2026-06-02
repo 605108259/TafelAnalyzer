@@ -1,16 +1,19 @@
-"""设置持久化：加载/保存应用设置。"""
+"""设置持久化（PySide6 版）：加载/保存应用设置，无 tkinter 依赖。"""
 from __future__ import annotations
 
 import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from core.cache import atomic_write_json, payload_hash
 from core.comparison import normalize_lsv_style
 from core.types import COMPARISON_COLORS
 from ui.state import DEFAULT_SCHEME_NAME, normalize_palette_scheme_name
+
+if TYPE_CHECKING:
+    from ui.app import TafelAnalyzerApp
 
 
 # ── Settings path ────────────────────────────────────────────────────
@@ -132,7 +135,7 @@ def _normalize_palette_scheme_slot_counts(
 
 
 def _materialize_palette_scheme(
-    app: Any,
+    app: TafelAnalyzerApp,
     scheme_name: str,
 ) -> dict[str, str]:
     scheme_name = _normalize_palette_scheme_name(scheme_name)
@@ -277,7 +280,7 @@ def load_project_history_from_cache_dir(*, limit: int = 80) -> list[dict]:
 # ── Load / Save ──────────────────────────────────────────────────────
 
 
-def load_app_settings(app: Any) -> None:
+def load_app_settings(app: TafelAnalyzerApp) -> None:
     payload = {}
     try:
         if APP_SETTINGS_PATH.exists():
@@ -324,7 +327,7 @@ def load_app_settings(app: Any) -> None:
         app._app_state["axis_label_overrides"] = overrides
 
 
-def save_app_settings(app: Any) -> None:
+def save_app_settings(app: TafelAnalyzerApp) -> None:
     schemes = app._app_state.get("palette_schemes", {})
     slot_counts = app._app_state.get("palette_scheme_slot_counts", {})
     payload = {

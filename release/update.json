@@ -1,9 +1,9 @@
 {
-  "version": "1.0.7",
-  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.7-setup.exe",
-  "filename": "TAFSQ-1.0.7-setup.exe",
-  "sha256": "63430e9e692339a01417bcd70c9d2f1ed412f79376aad639631e4dff6a12fdfe",
-  "size": 92860074,
+  "version": "1.0.8",
+  "url": "http://107.174.62.19/tafsq/TAFSQ-1.0.8-setup.exe",
+  "filename": "TAFSQ-1.0.8-setup.exe",
+  "sha256": "4fbe76758704da0d125b80294ca2c3ce63fde039c3e2401ec5a7b11404b817bf",
+  "size": 83228676,
   "mandatory": false,
-  "notes": "死代码清理、Figure 内存泄漏修复、工作线程安全加固、legend._loc 段错误防护、stop_worker 僵尸状态修复"
+  "notes": "Fitting加速:预计算+稀疏搜索+并行; 图表增量渲染+降采样; Fusion风格修复Win11 tooltip; 轴标题双击重命名; 移除文件不刷面板"
 }

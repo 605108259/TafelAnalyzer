@@ -51,10 +51,11 @@ def _safe_set_legend_loc(legend, loc) -> bool:
         _log.debug("Failed to set legend location to %s", loc, exc_info=True)
         return False
 
+if TYPE_CHECKING:
+    from ui.app import TafelAnalyzerApp
 
 
-
-def persist_current_plot_view_state(app: Any) -> None:
+def persist_current_plot_view_state(app: TafelAnalyzerApp) -> None:
     mode = app._app_state.get("active_chart_mode")
     if mode not in {"single", "comparison"} or len(app.fig.axes) < 2:
         return
@@ -63,7 +64,7 @@ def persist_current_plot_view_state(app: Any) -> None:
 
 
 def current_or_saved_plot_view_state(
-    app: Any,
+    app: TafelAnalyzerApp,
     mode: str,
 ) -> dict | list | None:
     key = "single_plot_view_state" if mode == "single" else "compare_plot_view_state"
@@ -317,7 +318,7 @@ def _clear_axes_artists(ax) -> None:
         legend.remove()
 
 
-def _needs_full_rebuild(app: Any, target_fig: Figure) -> bool:
+def _needs_full_rebuild(app: TafelAnalyzerApp, target_fig: Figure) -> bool:
     """Return True if the figure cache is stale and needs a full rebuild."""
     cache = app._app_state.get("_chart_cache")
     if cache is None:
@@ -330,7 +331,7 @@ def _needs_full_rebuild(app: Any, target_fig: Figure) -> bool:
 
 
 def render_figure(
-    app: Any,
+    app: TafelAnalyzerApp,
     target_fig: Figure,
     *,
     display_indices: list[int],
@@ -494,7 +495,7 @@ def configure_static_legend(legend, loc: str = "upper right") -> None:
     _safe_set_legend_loc(legend, loc)
 
 
-def capture_plot_view_state(app: Any, target_fig: Figure | None = None) -> dict | None:
+def capture_plot_view_state(app: TafelAnalyzerApp, target_fig: Figure | None = None) -> dict | None:
     active_fig = target_fig or app.fig
     axes = active_fig.axes[:2]
     if len(axes) < 2:
@@ -552,7 +553,7 @@ def axes_limits_from_view_state(
 
 
 def apply_plot_view_state(
-    app: Any,
+    app: TafelAnalyzerApp,
     axes: list,
     view_state: dict | list | None,
 ) -> None:
@@ -575,7 +576,7 @@ def apply_plot_view_state(
         reset_legend_to_default(axis)
 
 
-def capture_axes_limits(app: Any) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+def capture_axes_limits(app: TafelAnalyzerApp) -> list[tuple[tuple[float, float], tuple[float, float]]]:
     view_state = capture_plot_view_state(app, app.fig)
     if not view_state:
         return []
@@ -596,7 +597,7 @@ def reset_legend_to_default(axis) -> None:
     configure_static_legend(legend, "upper right")
 
 
-def reset_origin_view(app: Any) -> None:
+def reset_origin_view(app: TafelAnalyzerApp) -> None:
     """Reset both axes to data autoscale, update legend, and redraw.
 
     Always forces autoscale rather than relying on a previously-captured
@@ -630,7 +631,7 @@ def reset_origin_view(app: Any) -> None:
     app.canvas.draw_idle()
 
 
-def destroy_selector(app: Any) -> None:
+def destroy_selector(app: TafelAnalyzerApp) -> None:
     selector = app._app_state.get("selector")
     if selector is not None:
         try:
@@ -650,7 +651,7 @@ def destroy_selector(app: Any) -> None:
     app._app_state["selector"] = None
 
 
-def refresh_selector(app: Any) -> None:
+def refresh_selector(app: TafelAnalyzerApp) -> None:
     manual_current = app._app_state.get("manual_mode", False)
     if hasattr(app, "state"):
         manual_current = app.state.interaction.manual_is_current(
@@ -692,7 +693,7 @@ def refresh_selector(app: Any) -> None:
 
 
 def draw(
-    app: Any,
+    app: TafelAnalyzerApp,
     prepared: PreparedSeries,
     fit: TafelFit | None,
     preserve_view_state: dict | list | None = None,
@@ -727,7 +728,7 @@ def draw(
     refresh_selector(app)
 
 
-def draw_placeholder(app: Any) -> None:
+def draw_placeholder(app: TafelAnalyzerApp) -> None:
     from core.theme import MPL_RC, TEXT_SECONDARY
 
     app.fig.clear()
