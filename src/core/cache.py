@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zipfile
 from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
@@ -375,6 +376,31 @@ def write_v3_project_dir(project_dir: Path, manifest: dict, file_ui: dict,
     return new_hashes
 
 
+def write_v3_project_zip(zip_path: Path, manifest: dict, file_ui: dict,
+                         result_index: dict, comparison: list[dict],
+                         prepared_blobs: dict[str, dict],
+                         fit_blobs: dict[str, dict]) -> None:
+    """Write a v3 project cache as a single zip archive."""
+    zip_path = Path(zip_path)
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = zip_path.with_suffix(zip_path.suffix + ".tmp")
+
+    def _json_bytes(data: dict) -> bytes:
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", _json_bytes(manifest))
+        archive.writestr("file_ui.json", _json_bytes(file_ui))
+        archive.writestr("result_index.json", _json_bytes(result_index))
+        archive.writestr("comparison.json", _json_bytes({"items": comparison}))
+        for blob_key, blob_data in prepared_blobs.items():
+            archive.writestr(f"prepared/{blob_key}.json", _json_bytes(blob_data))
+        for blob_key, blob_data in fit_blobs.items():
+            archive.writestr(f"fits/{blob_key}.json", _json_bytes(blob_data))
+
+    tmp.replace(zip_path)
+
+
 def _cleanup_stale_blobs(blob_dir: Path, valid_keys: set[str]) -> None:
     """Remove blob files that are no longer referenced."""
     try:
@@ -387,12 +413,52 @@ def _cleanup_stale_blobs(blob_dir: Path, valid_keys: set[str]) -> None:
 
 def load_v3_project_dir(project_dir: Path) -> dict:
     """Load a v3 project directory into a v2-compatible payload dict."""
-    manifest = json.loads((project_dir / "manifest.json").read_text(encoding="utf-8"))
-    file_ui = json.loads((project_dir / "file_ui.json").read_text(encoding="utf-8"))
-    result_index = json.loads((project_dir / "result_index.json").read_text(encoding="utf-8"))
-    comparison_data = json.loads((project_dir / "comparison.json").read_text(encoding="utf-8"))
-    prepared_dir = project_dir / "prepared"
-    fits_dir = project_dir / "fits"
+    project_dir = Path(project_dir)
+
+    def _read_json(rel_path: str) -> dict:
+        return json.loads((project_dir / rel_path).read_text(encoding="utf-8"))
+
+    def _exists(rel_path: str) -> bool:
+        return (project_dir / rel_path).exists()
+
+    return _load_v3_project_payload(_read_json, _exists)
+
+
+def load_v3_project_zip(zip_path: Path) -> dict:
+    """Load a v3 project zip archive into a v2-compatible payload dict."""
+    zip_path = Path(zip_path)
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        names = {
+            name.replace("\\", "/")
+            for name in archive.namelist()
+            if not name.endswith("/")
+        }
+        if "manifest.json" in names:
+            prefix = ""
+        else:
+            manifest_names = sorted(name for name in names if name.endswith("/manifest.json"))
+            if not manifest_names:
+                raise FileNotFoundError(f"缓存压缩包缺少 manifest.json: {zip_path}")
+            prefix = manifest_names[0][:-len("manifest.json")]
+
+        def _entry(rel_path: str) -> str:
+            return f"{prefix}{rel_path}"
+
+        def _read_json(rel_path: str) -> dict:
+            with archive.open(_entry(rel_path), "r") as handle:
+                return json.loads(handle.read().decode("utf-8"))
+
+        def _exists(rel_path: str) -> bool:
+            return _entry(rel_path) in names
+
+        return _load_v3_project_payload(_read_json, _exists)
+
+
+def _load_v3_project_payload(read_json, exists) -> dict:
+    manifest = read_json("manifest.json")
+    file_ui = read_json("file_ui.json")
+    result_index = read_json("result_index.json")
+    comparison_data = read_json("comparison.json")
 
     # Rebuild result_cache with embedded data
     result_cache: list[dict] = []
@@ -400,15 +466,15 @@ def load_v3_project_dir(project_dir: Path) -> dict:
         prepared_by_segment: dict[str, dict] = {}
         fit_by_segment: dict[str, dict] = {}
         for seg_str, ref in entry.get("prepared_refs", {}).items():
-            blob_path = prepared_dir / f"{ref}.json"
-            if blob_path.exists():
-                prepared = json.loads(blob_path.read_text(encoding="utf-8"))
+            blob_path = f"prepared/{ref}.json"
+            if exists(blob_path):
+                prepared = read_json(blob_path)
                 if is_prepared_payload(prepared):
                     prepared_by_segment[seg_str] = prepared
         for seg_str, ref in entry.get("fit_refs", {}).items():
-            blob_path = fits_dir / f"{ref}.json"
-            if blob_path.exists():
-                fit_by_segment[seg_str] = json.loads(blob_path.read_text(encoding="utf-8"))
+            blob_path = f"fits/{ref}.json"
+            if exists(blob_path):
+                fit_by_segment[seg_str] = read_json(blob_path)
         if not prepared_by_segment:
             continue
         active_seg = entry.get("active_segment_index", 0)
@@ -435,18 +501,18 @@ def load_v3_project_dir(project_dir: Path) -> dict:
         if not ref and result_entry:
             ref = result_entry.get("prepared_refs", {}).get(str(item.get("segment_index")))
         if ref:
-            blob_path = prepared_dir / f"{ref}.json"
-            if blob_path.exists():
-                prepared_data = json.loads(blob_path.read_text(encoding="utf-8"))
+            blob_path = f"prepared/{ref}.json"
+            if exists(blob_path):
+                prepared_data = read_json(blob_path)
                 if not is_prepared_payload(prepared_data):
                     prepared_data = None
         ref = item.get("fit_ref")
         if not ref and result_entry:
             ref = result_entry.get("fit_refs", {}).get(str(item.get("segment_index")))
         if ref:
-            blob_path = fits_dir / f"{ref}.json"
-            if blob_path.exists():
-                fit_data = json.loads(blob_path.read_text(encoding="utf-8"))
+            blob_path = f"fits/{ref}.json"
+            if exists(blob_path):
+                fit_data = read_json(blob_path)
         comparison_items.append({
             "item_id": item["item_id"],
             "file_path": item["file_path"],
@@ -461,6 +527,8 @@ def load_v3_project_dir(project_dir: Path) -> dict:
 
     return {
         "cache_format_version": 3,
+        "project_id": manifest.get("project_id"),
+        "project_title": manifest.get("project_title"),
         "selected_paths": manifest["selected_paths"],
         "current_path": manifest["current_path"],
         "chart_view_state": manifest["chart_view_state"],

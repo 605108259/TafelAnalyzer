@@ -445,7 +445,7 @@ class TafelAnalyzerApp(QMainWindow):
             if not url.isLocalFile():
                 continue
             path = Path(url.toLocalFile())
-            if path.suffix.lower() == ".json":
+            if path.suffix.lower() in {".json", ".zip"}:
                 return path
         return None
 

@@ -20,8 +20,10 @@ from core.cache import (
     build_v3_result_index,
     cache_key_to_json,
     load_v3_project_dir,
+    load_v3_project_zip,
     make_result_cache_key,
     write_v3_project_dir,
+    write_v3_project_zip,
 )
 
 
@@ -178,6 +180,80 @@ def test_v3_cache_roundtrip_restores_result_key_and_comparison_refs():
         assert payload["current_result_keys"][str(data_path)] == cache_key_to_json(cache_key)
         assert payload["result_cache"][0]["prepared_by_segment"]["0"] is not None
         assert payload["comparison_items"][0]["prepared"] is not None
+
+
+def test_v3_cache_zip_roundtrip_restores_result_key_and_comparison_refs(tmp_path):
+    data_path = tmp_path / "sample.cor"
+    data_path.write_text("same data", encoding="utf-8")
+    prepared = _make_prepared()
+    cache_key = make_result_cache_key(
+        tdms_path=data_path,
+        potential_formula="[V]",
+        current_formula="[Igs/area]",
+        e_eq=0.0,
+        selected_segment_indices=(0,),
+        min_window=12,
+        max_window=15,
+        eta_range=None,
+        logj_range=None,
+        min_r2=0.95,
+        fit_priority="slope_low",
+    )
+    app = SimpleNamespace(
+        fig=SimpleNamespace(axes=[]),
+        state=SimpleNamespace(files=SimpleNamespace(current_path=data_path)),
+        _app_state={
+            "current_project_id": "project-1",
+            "current_project_title": "project",
+            "selected_paths": [data_path],
+            "tdms_path": data_path,
+            "active_chart_mode": None,
+            "single_plot_view_state": None,
+            "compare_plot_view_state": None,
+            "file_ui_cache": {str(data_path): {"potential_formula": "[V]"}},
+            "current_result_keys": {str(data_path): cache_key},
+            "result_cache": {
+                cache_key: {
+                    "prepared": prepared,
+                    "fit": None,
+                    "prepared_by_segment": {0: prepared},
+                    "fit_by_segment": {},
+                    "fit_error_by_segment": {},
+                    "manual_fit_regions": {},
+                    "selected_segment_indices": [0],
+                    "active_segment_index": 0,
+                    "view_state": None,
+                }
+            },
+            "comparison_items": [
+                ComparisonItem(
+                    item_id="item-1",
+                    file_path=data_path,
+                    file_name="sample",
+                    segment_index=0,
+                    prepared=prepared,
+                    fit=None,
+                    label="sample",
+                    color="#2563eb",
+                )
+            ],
+        },
+    )
+    zip_path = tmp_path / "project_cache.zip"
+
+    write_v3_project_zip(
+        zip_path,
+        build_v3_manifest(app),
+        build_v3_file_ui(app),
+        build_v3_result_index(app),
+        build_v3_comparison(app),
+        *build_v3_blobs(app),
+    )
+    payload = load_v3_project_zip(zip_path)
+
+    assert payload["current_result_keys"][str(data_path)] == cache_key_to_json(cache_key)
+    assert payload["result_cache"][0]["prepared_by_segment"]["0"] is not None
+    assert payload["comparison_items"][0]["prepared"] is not None
 
 
 def test_v3_cache_load_skips_result_entries_with_missing_prepared_blob(tmp_path):

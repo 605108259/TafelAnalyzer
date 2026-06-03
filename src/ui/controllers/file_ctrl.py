@@ -995,7 +995,7 @@ class FileController(BaseAppController):
         if self.app._app_state.get("selected_paths"):
             self._autosave_timer.start()
 
-    def _build_cache_path_map(self, cached_paths: list[Path]) -> dict[str, Path]:
+    def _build_cache_path_map(self, cached_paths: list[Path], *, prompt_for_missing: bool = True) -> dict[str, Path]:
         app = self.app
         path_map: dict[str, Path] = {}
         unresolved: list[Path] = []
@@ -1018,7 +1018,7 @@ class FileController(BaseAppController):
             else:
                 unresolved.append(old_path)
 
-        if not unresolved:
+        if not unresolved or not prompt_for_missing:
             return path_map
 
         root = QFileDialog.getExistingDirectory(
@@ -1062,7 +1062,7 @@ class FileController(BaseAppController):
         initial_dir = str(first_path.parent) if first_path else ""
         cache_path, _ = QFileDialog.getOpenFileName(
             app, "选择缓存文件", initial_dir,
-            "JSON (*.json);;All files (*.*)"
+            "Cache (*.zip *.json);;Zip (*.zip);;JSON (*.json);;All files (*.*)"
         )
         if not cache_path:
             return
@@ -1088,23 +1088,32 @@ class FileController(BaseAppController):
                 payload = c.load_v3_project_dir(cache_path)
             elif cache_path.is_dir():
                 raise FileNotFoundError(f"缓存目录缺少 manifest.json: {cache_path}")
+            elif cache_path.suffix.lower() == ".zip":
+                payload = c.load_v3_project_zip(cache_path)
             else:
                 payload = json.loads(Path(cache_path).read_text(encoding="utf-8"))
             # Restore paths
             paths = [Path(p) for p in payload.get("selected_paths", [])]
-            path_candidates = list(paths)
-            path_candidates.extend(Path(p) for p in payload.get("current_result_keys", {}).keys())
-            path_candidates.extend(
+            if not is_history_restore and payload.get("project_title"):
+                app._app_state["current_project_title"] = str(payload.get("project_title"))
+            optional_path_candidates = [Path(p) for p in payload.get("current_result_keys", {}).keys()]
+            optional_path_candidates.extend(
                 Path(item["key"][0])
                 for item in payload.get("result_cache", [])
                 if item.get("key") and isinstance(item["key"][0], str)
             )
-            path_candidates.extend(
+            optional_path_candidates.extend(
                 Path(item["file_path"])
                 for item in payload.get("comparison_items", [])
                 if item.get("file_path")
             )
-            path_map = self._build_cache_path_map(path_candidates)
+            path_map = self._build_cache_path_map(paths)
+            optional_path_map = self._build_cache_path_map(
+                optional_path_candidates,
+                prompt_for_missing=False,
+            )
+            optional_path_map.update(path_map)
+            path_map = optional_path_map
             restored_paths = []
             for path in paths:
                 mapped = self._remap_cached_path(path, path_map)
